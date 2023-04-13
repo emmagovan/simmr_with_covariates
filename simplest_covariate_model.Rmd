@@ -121,9 +121,8 @@ model{
       mu_f[i,k] <- alpha[k] +beta[k]*x[i]
       }
       
-   #sigma_f[k] ~ dgamma(1,1)
-    alpha[k] ~ dnorm(1,1)
-    beta[k] ~dnorm(1,1) 
+    alpha[k] ~ dnorm(0,1)
+    beta[k] ~dnorm(0,1) 
   }
 
   
@@ -140,7 +139,7 @@ model_data = list(y=y,
                  N=nrow(y),
                  K=length(sources$Sources),
                  J=ncol(y),
-                 x = sex
+                 x = c(rep(1,9))
                  )
             
 model_parameters <- c("alpha", "beta", "sigma", "p")
@@ -174,13 +173,16 @@ source("FF_VB_generic_functions_correct.R")
 S<-100
 x_i0 <- sex
 n <- nrow(y)
-mu_alpha_zero <- c(rep(1, K))
-mu_beta_zero <- c(rep(1, K))
+mu_alpha_zero <- c(rep(0, K))
+mu_beta_zero <- c(rep(0, K))
 sigma_alpha_zero<-c(rep(1,K))
 sigma_beta_zero<-c(rep(1,K))
 n_isotopes <- ncol(mu_c)
 c_0 <- c(rep(1, n_isotopes))
 d_0 <- c(rep(1, n_isotopes))
+
+#TEMP
+sex<-c(rep(0.0001,9))
 
 
 
@@ -209,7 +211,7 @@ sim_theta <- function(S, lambda) {
   # This is a placeholder for more advanced code using chol_prec directly
   theta <- cbind(
     t(rMVNormC(S, mu = mean_alpha, U = chol_prec_alpha)),
-   matrix(rep(0, K*S), ncol = K, nrow = S), #t(rMVNormC(S, mu = mean_beta, U = chol_prec_beta)), #
+   t(rMVNormC(S, mu = mean_beta, U = chol_prec_beta)),#matrix(rep(0, K*S), ncol = K, nrow = S),
     matrix(rgamma(S * n_isotopes,
                   shape = lambda[((K*(K+1) +2*K)+1):((K*(K+1) +2*K)+n_isotopes)],
                   rate = lambda[((K*(K+1) +2*K)+n_isotopes+1):((K*(K+1) +2*K)+2*n_isotopes)]
@@ -254,15 +256,15 @@ h <- function(theta) {
                    sd = sqrt(sum(p[i,]^2 * q^2 * (sigma_kj[, 1]^2+sigma_c[,1]^2))/sum(p[i,]^2*q^2) + 1 / theta[2 *K + 1]),
                    log = TRUE
   ))
-    + sum(dnorm(y[i, 2],
-                   mean = sum(p[i,] * q * (mu_kj[, 2]+mu_c[,2]))/sum(p[i,]*q),
-                   sd = sqrt(sum(p[i,]^2 * q^2 * (sigma_kj[, 2]^2+sigma_c[,2]^2))/sum(p[i,]^2*q^2) + 1 / theta[2 *K + 2]),
+     sum(dnorm(y[i, 2],
+                   mean = sum(p[i,] * q[,2] * (mu_kj[, 2]+mu_c[,2]))/sum(p[i,]*q[,2]),
+                   sd = sqrt(sum(p[i,]^2 * q[,2]^2 * (sigma_kj[, 2]^2+sigma_c[,2]^2))/sum(p[i,]^2*q[,2]^2) + 1 / theta[2 *K + 2]),
                    log = TRUE
   ))
     } 
   
   
-  return(hold  sum(dnorm(alpha, mu_alpha_zero, sigma_alpha_zero, log = TRUE)) +
+  return(hold + sum(dnorm(alpha, mu_alpha_zero, sigma_alpha_zero, log = TRUE)) +
     sum(dnorm(beta, mu_beta_zero, sigma_beta_zero, log = TRUE)) +
     sum(dgamma(sigma, shape = c_0, rate = d_0, log = TRUE)) )
 }
@@ -285,7 +287,7 @@ log_q <- function(lambda, theta) {
   p2<-matrix(theta[(K+1):(2*K)] - mean_beta, nrow = 1) %*% t(chol_prec_beta)
   # log_det <- unlist(determinant(prec, logarithm = TRUE))["modulus"]
   return(-0.5 * K * log(2 * pi) - 0.5 * sum(log(diag(chol_prec_alpha))) - 0.5 * p1%*%t(p1) -
-           0.5 * K * log(2 * pi) - 0.5 * sum(log(diag(chol_prec_beta))) - 0.5 * p2%*%t(p2)
+          0.5 * K * log(2 * pi) - 0.5 * sum(log(diag(chol_prec_beta))) - 0.5 * p2%*%t(p2)
          
          + sum(dgamma(theta[(2*K+1):(2*K+2)],
                       shape = lambda[((K*(K+1) +2*K)+1):((K*(K+1) +2*K)+n_isotopes)],
@@ -296,7 +298,7 @@ log_q <- function(lambda, theta) {
 #log_q(lambda, theta[1,])
 
 # Algorithm ---------------------------------------------------------------
-lambda <- run_VB(lambda = c(rep(1, K), rep(1, ((K*(K+1) +K)+2*n_isotopes)))) # Starting value of lambda
+lambda <- run_VB(lambda = c(rep(0,K), rep(1,K*(K+1)/2), rep(0,K), rep(1,K*(K+1)/2), rep(1,n_isotopes), rep(1,n_isotopes))) # Starting value of lambda
 
 
 ```
@@ -353,6 +355,20 @@ hist(1/sqrt(theta[,9]), col = mycol, alpha = 0.5, breaks = 80, add = TRUE)
 
 hist((model_run$BUGSoutput$sims.list$sigma[,2]), col = mycol2, breaks = 80)
 hist(1/sqrt(theta[,10]), col = mycol, alpha = 0.5, breaks = 80, add = TRUE)
+
+  alpha<- colMeans(theta[,1:K])
+  beta<-colMeans(theta[,(K+1):(2*K)])
+  sigma<-colMeans(theta[,(2*K + 1):(2*K + 2)])
+  f<-matrix(NA, ncol = K, nrow = n)
+  for(i in 1:n){
+    for(k in 1:K){
+  f[i,k]<-alpha[k] + beta[k] * sex[i]
+    }
+  }
+  p<-matrix(NA, ncol = K, nrow = n)
+  for(i in 1:n){
+  p[i,] <- exp(f[i,1:K]) / (sum((exp(f[i,1:K]))))
+  }
 
 
 
