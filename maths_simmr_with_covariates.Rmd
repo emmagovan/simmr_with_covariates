@@ -1,0 +1,60 @@
+---
+title: "Maths for more complex model"
+output:
+  html_document:
+    df_print: paged
+---
+
+
+$$y_{ij} \sim N\left(\frac{\sum_{k=1}^Kp_{ik}q_{k}(\mu_c+\mu_s)}{\sum_{k=1}^Kp_{ik}q_{k}}, \frac{\sum_{k=1}^Kp_{ik}^2q_{k}^2(\sigma_c^2+\sigma_s^2)}{\sum_{k=1}^Kp_{ik}^2q_k^2} +\tau^{-1}\right)$$
+
+
+
+$$\pi(y\mid\theta) = \frac{1}{\sqrt{2\pi}}\left(\frac{\sum_{k=1}^Kp_{ik}^2q_{k}^2(\sigma_c^2+\sigma_s^2)}{\sum_{k=1}^Kp_{ik}^2q_k^2} +\tau^{-1}\right)^{\frac{n}{2}}\exp\left(\frac{\frac{\sum_{k=1}^Kp_{ik}^2q_{k}^2(\sigma_c^2+\sigma_s^2)}{\sum_{k=1}^Kp_{ik}^2q_k^2} +\tau^{-1}}{2}\sum_{i=1}^n(y_i-\frac{\frac{\sum_{k=1}^Kp_{ik}q_k(\mu_s+\mu_c)}{\sum_{k=1}^Kp_{ik}q_k}}{2})^2\right)$$
+
+
+
+$$log(\pi(y\mid\theta) = -\frac{1}{2}\log(2\pi) +\frac{n}{2}\log\left(\frac{\sum_{k=1}^Kp_{ik}^2q_{k}^2(\sigma_c^2+\sigma_s^2)}{\sum_{k=1}^Kp_{ik}^2q_k^2} +\tau^{-1}\right)- \frac{\frac{\sum_{k=1}^Kp_{ik}^2q_{k}^2(\sigma_c^2+\sigma_s^2)}{\sum_{k=1}^Kp_{ik}^2q_k^2} +\tau^{-1}}{2}\left(\sum_{i=1}^N\left(y_i - \frac{\sum_{k=1}^Kp_{ik}q_k(\mu_s+\mu_c)}{\sum_{k=1}^Kp_{ik}q_k}\right)^2\right)$$
+
+
+
+
+$$p_{ik} = \frac{\exp{f_{ik}}}{\sum_{k=1}^K\exp{f_{ik}}}$$
+
+$$f \sim mvn(\alpha_k +\beta_kx_{ik}, \Sigma_f)$$
+
+$$\pi(f) = \frac{1}{(2\pi)^\frac{n}{2}}\frac{1}{\mid\Sigma_f\mid^\frac{1}{2}} \exp\left(-\frac{1}{2}(f-\alpha_k-\beta_kx_{ik})^T\Sigma^{-1}_k(f-\alpha_k-\beta_kx_{ik})\right)$$
+
+$$\log(\pi(f)) = -\frac{n}{2}\log(2\pi) -\frac{1}{2}\log(\mid\Sigma_f\mid) -\frac{1}{2}(f-\alpha_k-\beta_kx_{ik})^T\Sigma^{-1}_k(f-\alpha_k-\beta_kx_{ik})$$
+
+$$\pi(\tau) = \frac{d^c}{\Gamma(c)} \tau_j^{c-1} \exp(-d\tau_j)$$
+
+$$\log(\pi(\tau)) = c\log(d) -log(\Gamma(c)) - (c-1)\log(\tau_j) -d\tau_j)$$
+
+All we need to specify for FFVB is h and log_q
+
+$$h(\theta) = \log(\pi(p)\pi(\tau)\pi(y|p, \tau))$$
+
+This has $$c_0, d_0, \Sigma_{f0}$$ etc
+
+
+$$\log{q_\lambda}(\theta) = \log(q(f)q(\tau))$$
+
+Which uses the new iterative value of $\mu_f, \Sigma_f, c$, and $d$ generated in every iteration of the model
+
+sim_theta will also have to be specified, this generates new values of $\tau$ and $f$ every iteration
+
+Everything else is already done in the generic simmr functions.
+
+$\theta = p, \tau$
+
+$\lambda = \alpha_f, \beta_f, \Sigma_f,  c, d$
+
+
+
+
+
+
+
+
+

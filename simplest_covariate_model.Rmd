@@ -1,0 +1,389 @@
+---
+title: "simplest covariate model"
+author: "Emma Govan"
+date: "2023-04-06"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Maths for simplest covariate model
+
+
+
+$$y_{ij} \sim N\left(\frac{\sum_{k=1}^Kp_{ik}q_{k}(\mu_c+\mu_s)}{\sum_{k=1}^Kp_{ik}q_{k}}, \frac{\sum_{k=1}^Kp_{ik}^2q_{k}^2(\sigma_c^2+\sigma_s^2)}{\sum_{k=1}^Kp_{ik}^2q_k^2} +\tau^{-1}\right)$$
+
+
+
+$$\pi(y\mid\theta) = \frac{1}{\sqrt{2\pi}}\left(\frac{\sum_{k=1}^Kp_{ik}^2q_{k}^2(\sigma_c^2+\sigma_s^2)}{\sum_{k=1}^Kp_{ik}^2q_k^2} +\tau^{-1}\right)^{\frac{n}{2}}\exp\left(\frac{\frac{\sum_{k=1}^Kp_{ik}^2q_{k}^2(\sigma_c^2+\sigma_s^2)}{\sum_{k=1}^Kp_{ik}^2q_k^2} +\tau^{-1}}{2}\sum_{i=1}^n(y_i-\frac{\frac{\sum_{k=1}^Kp_{ik}q_k(\mu_s+\mu_c)}{\sum_{k=1}^Kp_{ik}q_k}}{2})^2\right)$$
+
+
+
+$$log(\pi(y\mid\theta) = -\frac{1}{2}\log(2\pi) +\frac{n}{2}\log\left(\frac{\sum_{k=1}^Kp_{ik}^2q_{k}^2(\sigma_c^2+\sigma_s^2)}{\sum_{k=1}^Kp_{ik}^2q_k^2} +\tau^{-1}\right)- \frac{\frac{\sum_{k=1}^Kp_{ik}^2q_{k}^2(\sigma_c^2+\sigma_s^2)}{\sum_{k=1}^Kp_{ik}^2q_k^2} +\tau^{-1}}{2}\left(\sum_{i=1}^N\left(y_i - \frac{\sum_{k=1}^Kp_{ik}q_k(\mu_s+\mu_c)}{\sum_{k=1}^Kp_{ik}q_k}\right)^2\right)$$
+
+
+
+
+$$p_{ik} = \frac{\exp{f_{ik}}}{\sum_{k=1}^K\exp{f_{ik}}}$$
+
+$$f = \alpha_k +\beta_kx_{ik}$$
+
+$$\alpha \sim N(\mu_\alpha, \Sigma_\alpha)$$
+
+$$\beta \sim N(\mu_\beta, \Sigma_\beta)$$
+
+$$\pi(\tau) = \frac{d^c}{\Gamma(c)} \tau_j^{c-1} \exp(-d\tau_j)$$
+
+$$\log(\pi(\tau)) = c\log(d) -log(\Gamma(c)) - (c-1)\log(\tau_j) -d\tau_j)$$
+
+
+All we need to specify for FFVB is h and log_q
+
+$$h(\theta) = \log(\pi(p)\pi(\tau)\pi(y|p, \tau))$$
+
+This has $c_0, d_0, \alpha_0, \beta_0$ etc
+
+
+$$\log{q_\lambda}(\theta) = \log(q(f)q(\tau))$$
+
+Which uses the new iterative value of 
+$$\mu_\alpha, \Sigma_\alpha, \mu_\beta, \sigma_\beta, c$$, and $d$ generated in every iteration of the model
+
+sim_theta will also have to be specified, this generates new values of $\tau,\alpha$ and $\beta$ every iteration
+
+Everything else is already done in the generic simmr functions.
+
+$\theta = \alpha, \beta, \tau$
+
+$\lambda = \mu_\alpha, \Sigma_\alpha, \mu_\beta, \Sigma_\beta,  c, d$
+
+
+# Read in data
+```{r}
+library(tidyverse)
+library(readxl)
+library(R2jags)
+
+path = system.file("extdata", "geese_data.xls", package = "simmr")
+geese_data = lapply(excel_sheets(path), read_excel, path = path)
+sex <- geese_data[[1]]$Sex[1:9]
+consumer <- read.csv("geese_consumer.csv", header = TRUE, stringsAsFactors = FALSE)
+sources <- read.csv("geese_sources.csv", header = TRUE, stringsAsFactors = FALSE)[1:4,]
+disc <- read.csv("geese_discrimination.csv", header = TRUE, stringsAsFactors = FALSE)
+y<-(consumer %>% filter(Group == "1") %>% select(d15N, d13C))[1:9,]
+```
+
+The hyper-parameter values for the prior distributions:
+```{r}
+
+n_isotopes <- 2
+
+mu_kj <- sources[,c(2,4)] #+ disc[, c(2,4)]
+K<-nrow(mu_kj)
+sigma_kj <- sources[,c(3,5)]
+mu_c <- disc[, c(2,4)]
+sigma_c <- disc[, c(3,5)]
+q <- sources[, c(6:7)]
+
+# sigma_kj<-matrix(rep(0, K*n_isotopes), nrow = K, ncol = n_isotopes)
+# mu_c<-matrix(rep(0, K*n_isotopes), nrow = K, ncol = n_isotopes)
+# sigma_c<-matrix(rep(0, K*n_isotopes), nrow = K, ncol = n_isotopes)
+#q<-matrix(rep(1/K, K*n_isotopes), nrow = K, ncol = n_isotopes)
+
+```
+
+
+#JAGS
+JAGS CODE
+```{r}
+
+
+model_code <- "
+model{
+  for (i in 1:N) {
+    for (j in 1:J) { 
+      y[i,j] ~ dnorm(inprod(p[i,]*q[,j], s_mean[,j]+c_mean[,j]) / inprod(p[i,],q[,j]), 1/var_y[i,j])
+      var_y[i,j] <- inprod(pow(p[i,]*q[,j],2),s_sd[,j]^2+c_sd[,j]^2)/pow(inprod(p[i,],q[,j]),2) 
+        + pow(sigma[j],2)
+    }
+  }
+  for(i in 1:N) {
+    p[i,1:K] <- expf[i,]/sum(expf[i,])
+    for(k in 1:K) {
+      expf[i,k] <- exp(f[i,k])
+      f[i,k] = mu_f[i,k]
+    }
+  }
+  for(k in 1:K) { 
+  for(i in 1:N) {
+      mu_f[i,k] <- alpha[k] +beta[k]*x[i]
+      }
+      
+   #sigma_f[k] ~ dgamma(1,1)
+    alpha[k] ~ dnorm(1,1)
+    beta[k] ~dnorm(1,1) 
+  }
+
+  
+  for(j in 1:J) { sigma[j] ~ dgamma(0.001, 0.001) }
+}
+"
+
+model_data = list(y=y,
+                 s_mean=mu_kj,
+                 s_sd=sigma_kj,
+                 c_mean=mu_c,
+                 c_sd=sigma_c,
+                 q=q, 
+                 N=nrow(y),
+                 K=length(sources$Sources),
+                 J=ncol(y),
+                 x = sex
+                 )
+            
+model_parameters <- c("alpha", "beta", "sigma", "p")
+
+# Run the model
+model_run <- jags(
+  data = model_data,
+  parameters.to.save = model_parameters,
+  model.file = textConnection(model_code),
+  n.chains = 4, # Number of different starting positions
+  n.iter = 10000, # Number of iterations
+  n.burnin = 2000, # Number of iterations to remove at start
+  n.thin = 5
+) # Amount of thinning)
+
+
+print(model_run)
+```
+
+
+##FFVB
+
+```{r}
+# Source in all the generic functions
+source("FF_VB_generic_functions_correct.R")
+## Pretty sure these functions should work fine, don't need to be changed - everything thats
+## put into them should be a sum so just a single number anyway
+
+# Set up data and priors --------------------------------------------------
+# Hyper-parameters - vague priors
+S<-100
+x_i0 <- sex
+n <- nrow(y)
+mu_alpha_zero <- c(rep(1, K))
+mu_beta_zero <- c(rep(1, K))
+sigma_alpha_zero<-c(rep(1,K))
+sigma_beta_zero<-c(rep(1,K))
+n_isotopes <- ncol(mu_c)
+c_0 <- c(rep(1, n_isotopes))
+d_0 <- c(rep(1, n_isotopes))
+
+
+
+# Functions for this model ------------------------------------------------
+
+## This is working when beta is set to zero so think its okay
+sim_theta <- function(S, lambda) {
+  
+  # For K parameters you will have
+  # lambda is of length K+K*(K+1)/2 +n_isotopes*2
+  # mean <- lambda[1:K]
+  # chol_prec is made up of lambda[(K + 1):(K+(K*(K+1))/2)]
+  # Tau is made up of lambda[((K+(K*(K+1))/2)+1):((K+(K*(K+1))/2)+n_isotopes*2)]
+  # (f) ~ MVN(lambda[1:K], solve(crossprod(chol_prec)))
+  
+  mean_alpha <- lambda[1:K]
+ 
+  # K*(K-1) precision terms
+  chol_prec_alpha <- matrix(0, nrow = K, ncol = K)
+  chol_prec_alpha[upper.tri(chol_prec_alpha, diag = TRUE)] <- lambda[(K + 1):(K + (K * (K + 1)) / 2)]
+ 
+  mean_beta <- lambda[(K+(K*(K+1)/2) +1):(2*K + (K*(K+1)/2))]
+  chol_prec_beta <- matrix(0, nrow = K, ncol = K)
+  chol_prec_beta[upper.tri(chol_prec_beta, diag = TRUE)] <- lambda[(2*K + (K*(K+1)/2) + 1):(K*(K+1) +2*K)]
+  
+  # This is a placeholder for more advanced code using chol_prec directly
+  theta <- cbind(
+    t(rMVNormC(S, mu = mean_alpha, U = chol_prec_alpha)),
+   matrix(rep(0, K*S), ncol = K, nrow = S), #t(rMVNormC(S, mu = mean_beta, U = chol_prec_beta)), #
+    matrix(rgamma(S * n_isotopes,
+                  shape = lambda[((K*(K+1) +2*K)+1):((K*(K+1) +2*K)+n_isotopes)],
+                  rate = lambda[((K*(K+1) +2*K)+n_isotopes+1):((K*(K+1) +2*K)+2*n_isotopes)]
+    ),
+    nrow = S,
+    ncol = n_isotopes,
+    byrow = TRUE
+    )
+  )
+
+  return(theta)
+}
+
+#theta <- sim_theta(S, lambda)
+#Theta is alpha, beta, and tau
+#lambda is mu_alpha, sigma_alpha, mu_beta, sigma_beta, c, d
+
+
+# Log of likelihood added to prior
+h <- function(theta) {
+  # Create alpha and beta
+  alpha<- theta[1:K]
+  beta<-theta[(K+1):(2*K)]
+  sigma<-theta[(2*K + 1):(2*K + 2)]
+  f<-matrix(NA, ncol = K, nrow = n)
+  for(i in 1:n){
+    for(k in 1:K){
+  f[i,k]<-alpha[k] + beta[k] * sex[i]
+    }
+  }
+  p<-matrix(NA, ncol = K, nrow = n)
+  for(i in 1:n){
+  p[i,] <- exp(f[i,1:K]) / (sum((exp(f[i,1:K]))))
+  }
+  
+  ##Im not sure this bit needs to be looped over?
+  hold<-0
+
+    for(i in 1:n){
+   hold = hold + sum(dnorm(y[i, 1],
+                   mean = sum(p[i,] * q * (mu_kj[, 1]+mu_c[,1]))/sum(p[i,]*q),
+                   sd = sqrt(sum(p[i,]^2 * q^2 * (sigma_kj[, 1]^2+sigma_c[,1]^2))/sum(p[i,]^2*q^2) + 1 / theta[2 *K + 1]),
+                   log = TRUE
+  ))
+    + sum(dnorm(y[i, 2],
+                   mean = sum(p[i,] * q * (mu_kj[, 2]+mu_c[,2]))/sum(p[i,]*q),
+                   sd = sqrt(sum(p[i,]^2 * q^2 * (sigma_kj[, 2]^2+sigma_c[,2]^2))/sum(p[i,]^2*q^2) + 1 / theta[2 *K + 2]),
+                   log = TRUE
+  ))
+    } 
+  
+  
+  return(hold  sum(dnorm(alpha, mu_alpha_zero, sigma_alpha_zero, log = TRUE)) +
+    sum(dnorm(beta, mu_beta_zero, sigma_beta_zero, log = TRUE)) +
+    sum(dgamma(sigma, shape = c_0, rate = d_0, log = TRUE)) )
+}
+# h(theta[1,])
+
+log_q <- function(lambda, theta) {
+  
+  mean_alpha <- lambda[1:K]
+  chol_prec_alpha <- matrix(0, nrow = K, ncol = K)
+  chol_prec_alpha[upper.tri(chol_prec_alpha, diag = TRUE)] <- lambda[(K + 1):(K + (K * (K + 1)) / 2)]
+ 
+  mean_beta <- lambda[(K+(K*(K+1)/2) +1):(2*K + (K*(K+1)/2))]
+  chol_prec_beta <- matrix(0, nrow = K, ncol = K)
+  chol_prec_beta[upper.tri(chol_prec_beta, diag = TRUE)] <- lambda[(2*K + (K*(K+1)/2) + 1):(K*(K+1) +2*K)]  
+  
+  
+  # This is a placeholder for more advanced code using chol_prec directly
+  # prec <- crossprod(chol_prec)
+  p1 <- matrix(theta[1:K] - mean_alpha, nrow = 1) %*% t(chol_prec_alpha)
+  p2<-matrix(theta[(K+1):(2*K)] - mean_beta, nrow = 1) %*% t(chol_prec_beta)
+  # log_det <- unlist(determinant(prec, logarithm = TRUE))["modulus"]
+  return(-0.5 * K * log(2 * pi) - 0.5 * sum(log(diag(chol_prec_alpha))) - 0.5 * p1%*%t(p1) -
+           0.5 * K * log(2 * pi) - 0.5 * sum(log(diag(chol_prec_beta))) - 0.5 * p2%*%t(p2)
+         
+         + sum(dgamma(theta[(2*K+1):(2*K+2)],
+                      shape = lambda[((K*(K+1) +2*K)+1):((K*(K+1) +2*K)+n_isotopes)],
+                      rate = lambda[((K*(K+1) +2*K)+n_isotopes+1):((K*(K+1) +2*K)+2*n_isotopes)],
+                      log = TRUE
+         )))
+}
+#log_q(lambda, theta[1,])
+
+# Algorithm ---------------------------------------------------------------
+lambda <- run_VB(lambda = c(rep(1, K), rep(1, ((K*(K+1) +K)+2*n_isotopes)))) # Starting value of lambda
+
+
+```
+#Compare to JAGS
+```{r}
+mycol <- rgb(0, 0, 255, max = 255, alpha = 125, names = "blue50")
+mycol2 <- rgb(255, 0, 0, max = 255, alpha = 125)
+
+theta<-sim_theta(6400, lambda)
+
+#  f<-matrix(NA, ncol = K, nrow = n)
+# 
+# for(i in 1:n){
+#     for(k in 1:K){
+#   f[i,k]<-theta[i,k] + theta[i,(k+K)] * sex[i]
+#     }
+#   }
+# 
+# p<-matrix(NA, ncol = K, nrow = n)
+#   for(i in 1:n){
+#   p[i,] <- exp(f[i,1:K]) / (sum((exp(f[i,1:K]))))
+#   }
+
+
+# Plot of alpha and beta
+hist((model_run$BUGSoutput$sims.list$alpha[,1]), col = mycol2, breaks = 80)
+hist(theta[,1], col = mycol, alpha = 0.5, breaks = 10, add = TRUE)
+
+hist((model_run$BUGSoutput$sims.list$alpha[,2]), col = mycol2, breaks = 80)
+hist(theta[,2], col = mycol, alpha = 0.5, breaks = 10, add = TRUE)
+
+hist((model_run$BUGSoutput$sims.list$alpha[,3]), col = mycol2, breaks = 80)
+hist(theta[,3], col = mycol, alpha = 0.5, breaks = 10, add = TRUE)
+
+hist((model_run$BUGSoutput$sims.list$alpha[,4]), col = mycol2, breaks = 80)
+hist(theta[,4], col = mycol, alpha = 0.5, breaks = 10, add = TRUE)
+
+hist((model_run$BUGSoutput$sims.list$beta[,1]), col = mycol2, breaks = 80)
+hist(theta[,5], col = mycol, alpha = 0.5, breaks = 10, add = TRUE)
+
+hist((model_run$BUGSoutput$sims.list$beta[,2]), col = mycol2, breaks = 80)
+hist(theta[,6], col = mycol, alpha = 0.5, breaks = 10, add = TRUE)
+
+hist((model_run$BUGSoutput$sims.list$beta[,3]), col = mycol2, breaks = 80)
+hist(theta[,7], col = mycol, alpha = 0.5, breaks = 10, add = TRUE)
+
+hist((model_run$BUGSoutput$sims.list$beta[,4]), col = mycol2, breaks = 80)
+hist(theta[,8], col = mycol, alpha = 0.5, breaks = 10, add = TRUE)
+
+
+#Plots of sigma
+hist((model_run$BUGSoutput$sims.list$sigma[,1]), col = mycol2, breaks = 80)
+hist(1/sqrt(theta[,9]), col = mycol, alpha = 0.5, breaks = 80, add = TRUE)
+
+hist((model_run$BUGSoutput$sims.list$sigma[,2]), col = mycol2, breaks = 80)
+hist(1/sqrt(theta[,10]), col = mycol, alpha = 0.5, breaks = 80, add = TRUE)
+
+
+
+
+```
+
+
+
+
+```{r}
+library(simmr)
+
+simmr_in<-simmr_load(mixtures = y, 
+                     source_names = sources$Sources, 
+                     source_means = mu_kj, 
+                     sigma_kj, 
+                     mu_c, 
+                     sigma_c, 
+                     q)
+
+simmr_out<-simmr_mcmc(simmr_in)
+summary(simmr_out)
+
+
+##JAGS code is right - have chekced by setting beta to zero
+##Need to go into 
+```
+
+
+
+
+
+
+
