@@ -1,16 +1,9 @@
 ---
-title: "simplest covariate model"
+title: "covariate_f_with_error"
 author: "Emma Govan"
-date: "2023-04-06"
+date: "2023-04-17"
 output: html_document
 ---
-
-```{r setup, include=FALSE}
-knitr::opts_chunk$set(echo = TRUE)
-```
-
-# Maths for simplest covariate model
-
 
 
 $$y_{ij} \sim N\left(\frac{\sum_{k=1}^Kp_{ik}q_{k}(\mu_c+\mu_s)}{\sum_{k=1}^Kp_{ik}q_{k}}, \frac{\sum_{k=1}^Kp_{ik}^2q_{k}^2(\sigma_c^2+\sigma_s^2)}{\sum_{k=1}^Kp_{ik}^2q_k^2} +\tau^{-1}\right)$$
@@ -28,36 +21,35 @@ $$log(\pi(y\mid\theta) = -\frac{1}{2}\log(2\pi) +\frac{n}{2}\log\left(\frac{\sum
 
 $$p_{ik} = \frac{\exp{f_{ik}}}{\sum_{k=1}^K\exp{f_{ik}}}$$
 
-$$f = \alpha_k +\beta_kx_{ik}$$
+$$f \sim mvn(\alpha_k +\beta_kx_{ik}, \Sigma_f)$$
 
-$$\alpha \sim N(\mu_\alpha, \Sigma_\alpha)$$
+$$\pi(f) = \frac{1}{(2\pi)^\frac{n}{2}}\frac{1}{\mid\Sigma_f\mid^\frac{1}{2}} \exp\left(-\frac{1}{2}(f-\alpha_k-\beta_kx_{ik})^T\Sigma^{-1}_k(f-\alpha_k-\beta_kx_{ik})\right)$$
 
-$$\beta \sim N(\mu_\beta, \Sigma_\beta)$$
+$$\log(\pi(f)) = -\frac{n}{2}\log(2\pi) -\frac{1}{2}\log(\mid\Sigma_f\mid) -\frac{1}{2}(f-\alpha_k-\beta_kx_{ik})^T\Sigma^{-1}_k(f-\alpha_k-\beta_kx_{ik})$$
 
 $$\pi(\tau) = \frac{d^c}{\Gamma(c)} \tau_j^{c-1} \exp(-d\tau_j)$$
 
 $$\log(\pi(\tau)) = c\log(d) -log(\Gamma(c)) - (c-1)\log(\tau_j) -d\tau_j)$$
 
-
 All we need to specify for FFVB is h and log_q
 
 $$h(\theta) = \log(\pi(p)\pi(\tau)\pi(y|p, \tau))$$
 
-This has $c_0, d_0, \alpha_0, \beta_0$ etc
+This has $$c_0, d_0, \Sigma_{f0}$$ etc
 
 
 $$\log{q_\lambda}(\theta) = \log(q(f)q(\tau))$$
 
-Which uses the new iterative value of 
-$$\mu_\alpha, \Sigma_\alpha, \mu_\beta, \sigma_\beta, c$$, and $d$ generated in every iteration of the model
+Which uses the new iterative value of $\mu_f, \Sigma_f, c$, and $d$ generated in every iteration of the model
 
-sim_theta will also have to be specified, this generates new values of $\tau,\alpha$ and $\beta$ every iteration
+sim_theta will also have to be specified, this generates new values of $\tau$ and $f$ every iteration
 
 Everything else is already done in the generic simmr functions.
 
-$\theta = \alpha, \beta, \tau$
+$\theta = p, \tau$
 
-$\lambda = \mu_\alpha, \Sigma_\alpha, \mu_\beta, \Sigma_\beta,  c, d$
+$\lambda = \alpha_f, \beta_f, \Sigma_f,  c, d$
+
 
 
 # Read in data
@@ -74,6 +66,12 @@ sources <- read.csv("geese_sources.csv", header = TRUE, stringsAsFactors = FALSE
 disc <- read.csv("geese_discrimination.csv", header = TRUE, stringsAsFactors = FALSE)
 y<-(consumer %>% filter(Group == "1") %>% select(d15N, d13C))[1:9,]
 ```
+
+
+
+
+
+
 
 The hyper-parameter values for the prior distributions:
 ```{r}
@@ -158,6 +156,7 @@ model_run <- jags(
 
 print(model_run)
 ```
+
 
 
 ##FFVB
@@ -377,7 +376,6 @@ hist(1/sqrt(theta[,10]), col = mycol, alpha = 0.5, breaks = 80, add = TRUE)
 
 
 
-
 ```{r}
 library(simmr)
 
@@ -396,6 +394,7 @@ summary(simmr_out)
 ##JAGS code is right - have chekced by setting beta to zero
 ##Need to go into 
 ```
+
 
 
 
