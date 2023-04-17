@@ -23,18 +23,6 @@ nabla_LB <- function(lambda, theta, c = rep(0, length(lambda))) {
 }
 # nabla_LB(lambda, theta)
 
-# Chat GPT faster version:nabla_LB <- function(lambda, theta, c = rep(0, length(lambda))) {
-nabla_LB2 <- function(lambda, theta, c = rep(0, length(lambda))) {
-  big_delta_lqlt <- t(apply(theta, 1, delta_lqlt, lambda = lambda))
-  big_h_lambda <- t(apply(theta, 1, h_lambda, lambda = lambda, y = y))
-  big_h_lambda_rep <- matrix(big_h_lambda, nrow = nrow(theta), ncol = length(lambda), byrow = TRUE)
-  big_c <- matrix(c, nrow = nrow(theta), ncol = length(c), byrow = TRUE)
-  
-  colMeans(big_delta_lqlt * (big_h_lambda_rep - big_c))
-}
-# nabla_LB(lambda, theta)
-
-
 # Now the control variate
 control_var <- function(lambda, theta) {
   # Get delta log q
@@ -71,14 +59,19 @@ delta_lqlt <- function(lambda, theta, eps = 0.001) {
   }
   return(ans)
 }
+# delta_lqlt(lambda, theta)
 
 # Faster version from ChatGPT?
-# delta_lqlt <- function(lambda, theta, eps = 0.001) {
+# delta_lqlt2 <- function(lambda, theta, eps = 0.001) {
 #   k <- length(lambda)
 #   d <- diag(eps, k)
 #   delta <- (log_q(lambda + d, theta) - log_q(lambda - d, theta)) / (2 * eps)
 #   return(diag(delta))
 # }
+# microbenchmark(delta_lqlt(lambda, theta), 
+#                delta_lqlt2(lambda, theta), 
+#                times = 5)
+
 
 # K <- ncol(B)
 # lambda = c(rep(0, K), rep(1, K), 1, 1, 1, 1)
