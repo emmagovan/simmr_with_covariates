@@ -306,7 +306,7 @@ lambda <- run_VB(lambda = c(rep(0,K), rep(1,K*(K+1)/2), rep(0,K), rep(1,K*(K+1)/
 mycol <- rgb(0, 0, 255, max = 255, alpha = 125, names = "blue50")
 mycol2 <- rgb(255, 0, 0, max = 255, alpha = 125)
 
-theta<-sim_theta(6400, lambda)
+theta<-sim_theta(6400, lambda_out)
 
 #  f<-matrix(NA, ncol = K, nrow = n)
 # 
@@ -361,7 +361,7 @@ hist(1/sqrt(theta[,10]), col = mycol, alpha = 0.5, breaks = 80, add = TRUE)
   f<-matrix(NA, ncol = K, nrow = n)
   for(i in 1:n){
     for(k in 1:K){
-  f[i,k]<-alpha[k] + beta[k] * sex[i]
+  f[i,k]<-alpha[k] + beta[k] * x[i]
     }
   }
   p<-matrix(NA, ncol = K, nrow = n)
