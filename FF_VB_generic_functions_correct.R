@@ -23,18 +23,6 @@ nabla_LB <- function(lambda, theta, c = rep(0, length(lambda))) {
 }
 # nabla_LB(lambda, theta)
 
-# Chat GPT faster version:nabla_LB <- function(lambda, theta, c = rep(0, length(lambda))) {
-nabla_LB2 <- function(lambda, theta, c = rep(0, length(lambda))) {
-  big_delta_lqlt <- t(apply(theta, 1, delta_lqlt, lambda = lambda))
-  big_h_lambda <- t(apply(theta, 1, h_lambda, lambda = lambda, y = y))
-  big_h_lambda_rep <- matrix(big_h_lambda, nrow = nrow(theta), ncol = length(lambda), byrow = TRUE)
-  big_c <- matrix(c, nrow = nrow(theta), ncol = length(c), byrow = TRUE)
-  
-  colMeans(big_delta_lqlt * (big_h_lambda_rep - big_c))
-}
-# nabla_LB(lambda, theta)
-
-
 # Now the control variate
 control_var <- function(lambda, theta) {
   # Get delta log q
@@ -71,18 +59,6 @@ delta_lqlt <- function(lambda, theta, eps = 0.001) {
   }
   return(ans)
 }
-
-# Faster version from ChatGPT?
-# delta_lqlt <- function(lambda, theta, eps = 0.001) {
-#   k <- length(lambda)
-#   d <- diag(eps, k)
-#   delta <- (log_q(lambda + d, theta) - log_q(lambda - d, theta)) / (2 * eps)
-#   return(diag(delta))
-# }
-
-# K <- ncol(B)
-# lambda = c(rep(0, K), rep(1, K), 1, 1, 1, 1)
-# theta <- sim_theta(50, lambda)
 # delta_lqlt(lambda, theta[1,])
 
 # Natural
@@ -160,64 +136,6 @@ run_VB <- function(lambda, # Starting value of lambda
   }
   return(lambda)
 }
-
-# Re-factored with Chat GPT:
-# run_VB <- function(lambda, # Starting value of lambda
-#                    S = 100, # Number of samples to take
-#                    P = 10, # Maximum patience before you stop
-#                    beta_1 = 0.9, # Learning rates
-#                    beta_2 = 0.9, # Learning rates
-#                    tau = 1000, # Iteration at which learning rate starts to decrease
-#                    eps_0 = 0.1, # Raw learning rate multiplier
-#                    t_W = 50 # Time window for working out convergence
-# ) {
-# 
-#   # Starting
-#   g_bar <- nabla_LB(lambda, sim_theta(S, lambda))
-#   nu_bar <- g_bar^2
-# 
-#   # Set up
-#   t <- 1
-#   patience <- 0
-#   stop <- FALSE
-#   LB <- rep(NA, t_W)
-#   max_LB_bar <- -Inf
-# 
-#   while (!stop) {
-#     if (t %% 10 == 0) print(t)
-# 
-#     # Generate new samples and compute g_t
-#     theta <- sim_theta(S, lambda)
-#     g_t <- nabla_LB(lambda, theta, control_var(lambda, theta))
-# 
-#     # Update the learning rates
-#     g_bar <- beta_1 * g_bar + (1 - beta_1) * g_t
-#     nu_bar <- beta_2 * nu_bar + (1 - beta_2) * g_t^2
-#     alpha_t <- min(eps_0, eps_0 * tau / t)
-# 
-#     # Update lambda
-#     lambda <- lambda + alpha_t * g_bar / sqrt(nu_bar)
-# 
-#     # Compute the moving average LB if out of warm-up
-#     if (t <= t_W) {
-#       LB[t] <- LB_lambda(lambda, theta)
-#     } else {
-#       LB[1:(t_W - 1)] <- LB[2:t_W]
-#       LB[t_W] <- LB_lambda(lambda, theta)
-#       LB_bar <- mean(LB)
-#       max_LB_bar <- max(max_LB_bar, LB_bar)
-#       patience <- ifelse(LB_bar >= max_LB_bar, 0, patience + 1)
-#     }
-# 
-#     if (patience > P) {
-#       print("Completed!")
-#       stop <- TRUE
-#     }
-#     t <- t + 1
-#   }
-#   return(lambda)
-# }
-
 
 rMVNormC <- function(n, mu, U){
   p <- length(mu)
