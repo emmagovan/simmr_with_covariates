@@ -1,7 +1,4 @@
 #JAGS
-JAGS CODE
-```{r}
-
 
 model_code <- "
 model{
