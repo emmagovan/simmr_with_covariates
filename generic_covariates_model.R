@@ -65,8 +65,8 @@ d_0 <- c(rep(0.01, n_isotopes))
 beta_lambda<-c(rep(0, K),rep(1, K * (K + 1) / 2))
 lambda <- c(
   rep(beta_lambda, n_covariates +1),
-  rep(0.01, n_isotopes), #shape
-  rep(0.01, n_isotopes) #rate
+  rep(1, n_isotopes), #shape
+  rep(1, n_isotopes) #rate
 )
 
 x_scaled <- scale(x)
@@ -258,7 +258,7 @@ theta_out <- sim_theta(n_samples, lambda_out)
 #Easy way
 beta<-matrix(colMeans(theta_out[,1:(K*(n_covariates+1))]), ncol = (n_covariates +1), byrow = TRUE)
 sigma <- colMeans(theta_out[,(K*(n_covariates+1)+1):(K*(n_covariates+1)+n_isotopes)])
-f <- matrix(NA, ncol = K, nrow = n)
+
 f1 <- matrix(NA, ncol = K, nrow = n)
  for (i in 1:n) {
    for (k in 1:K) {
