@@ -31,10 +31,10 @@ mu_c <- TEFs[, c(2, 3)]
 sigma_c <- TEFs[, c(4, 5)]
 q <- conc[, c(2:3)]
 #consumer$Skull, consumer$Wing, consumer$`Net Wt`
-x <- matrix(c(rep(1,9),consumer$Sex, consumer$Age, consumer$Skull), 
+x <- matrix(c(consumer$Sex, consumer$Skull, consumer$Wing, consumer$Age, ), 
             nrow = 4, 
             byrow = TRUE)
-n_covariates <- nrow(x) -1
+n_covariates <- (nrow(x))
 y <- consumer |>
   select(d13C_Pl, d15N_Pl) |>
   as.matrix()
@@ -60,8 +60,8 @@ sigma_beta_zero <- matrix(c(rep(1, K * (n_covariates +1))),
                           ncol = K)
 
 n_isotopes <- ncol(mu_c)
-c_0 <- c(rep(0.01, n_isotopes)) #Change to 0.0001
-d_0 <- c(rep(0.01, n_isotopes))
+c_0 <- c(rep(1, n_isotopes)) #Change to 0.0001
+d_0 <- c(rep(1, n_isotopes))
 beta_lambda<-c(rep(0, K),rep(1, K * (K + 1) / 2))
 lambda <- c(
   rep(beta_lambda, n_covariates +1),
@@ -69,7 +69,7 @@ lambda <- c(
   rep(1, n_isotopes) #rate
 )
 
-x_scaled <- scale(x)
+x_scaled <- matrix(c(rep(1, ncol(x)), scale(x)), nrow = n_covariates +1, byrow = TRUE)
 
 
 # function to extract lambdas --------------------------------------------
@@ -260,12 +260,11 @@ beta<-matrix(colMeans(theta_out[,1:(K*(n_covariates+1))]), ncol = (n_covariates 
 sigma <- colMeans(theta_out[,(K*(n_covariates+1)+1):(K*(n_covariates+1)+n_isotopes)])
 
 f1 <- matrix(NA, ncol = K, nrow = n)
+
  for (i in 1:n) {
    for (k in 1:K) {
-     f1[i,k] <- x_scaled[1,i] * beta[1,k] + 
-       x_scaled[2,i] * beta[2,k]
-     x_scaled[3,i] * beta[3,k]
-     x_scaled[4,i] * beta[4,k]
+
+    f1[i,k] <- x_scaled[,i] %*% beta[k,]
    
    }
  }
