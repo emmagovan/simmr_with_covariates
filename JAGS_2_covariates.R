@@ -1,50 +1,88 @@
 #JAGS
+#general number of covariates
+#Specify the number at the start and then automatically generate it??
+
+# Load in package
+library(simmr)
+library(readxl)
+library(tidyverse)
+
+# Source in the generic functions
+source("FF_VB_generic_functions_correct.R")
+
+
+# Extract data ------------------------------------------------------------
+
+path <- system.file("extdata", "geese_data.xls", package = "simmr")
+geese_data <- lapply(excel_sheets(path), read_excel, path = path)
+
+# Just use time point 1 for now
+consumer <- geese_data[[1]] |> filter(Time == 1)
+sources <- geese_data[[2]]
+TEFs <- geese_data[[3]]
+conc <- geese_data[[4]]
+
+# Put them into the right names
+n <- nrow(consumer)
+n_isotopes <- 2
+K <- nrow(sources)
+mu_s <- sources[, c(2, 4)] #+ disc[, c(2,4)]
+sigma_s <- sources[, c(3, 5)]
+mu_c <- TEFs[, c(2, 4)]
+sigma_c <- TEFs[, c(3, 5)]
+q <- conc[, c(2:3)]
+
+Xmat<-matrix(c(rep(1,9),consumer$Sex, consumer$Wing, consumer$Skull, consumer$`Net Wt`), 
+             nrow = 5, 
+             byrow = TRUE)
 
 model_code <- "
 model{
   for (i in 1:N) {
     for (j in 1:J) { 
       y[i,j] ~ dnorm(inprod(p[i,]*q[,j], s_mean[,j]+c_mean[,j]) / inprod(p[i,],q[,j]), 1/var_y[i,j])
-      var_y[i,j] <- inprod(pow(p[i,]*q[,j],2),s_sd[,j]^2+c_sd[,j]^2)/pow(inprod(p[i,],q[,j]),2) 
+      var_y[i,j] = inprod(pow(p[i,]*q[,j],2),s_sd[,j]^2+c_sd[,j]^2)/pow(inprod(p[i,],q[,j]),2) 
         + pow(sigma[j],2)
     }
   }
   for(i in 1:N) {
-    p[i,1:K] <- expf[i,]/sum(expf[i,])
+    p[i,1:K] = expf[i,]/sum(expf[i,])
     for(k in 1:K) {
-      expf[i,k] <- exp(f[i,k])
+      expf[i,k] = exp(f[i,k])
       f[i,k] = mu_f[i,k]
     }
   }
-  for(k in 1:K) { 
+  for(k in 1:K) {
   for(i in 1:N) {
-      mu_f[i,k] <- alpha[k] +beta1[k]*x1[i] +beta2[k]*x2[i]
-      }
-      
-    alpha[k] ~ dnorm(0,1)
-    beta1[k] ~dnorm(0,1) 
-    beta2[k] ~dnorm(0,1) 
+      mu_f[i,k] = inprod(x[,i], beta[,k])
   }
-
   
-  for(j in 1:J) { sigma[j] ~ dgamma(0.001, 0.001) }
+  
+  for(a in 1:ncov){
+   beta[k,a] ~ dnorm(0,1)
+  }
+  }   
+  
+  for(j in 1:J) { 
+      sigma[j] ~ dgamma(0.001, 0.001)
+      }
 }
 "
 
-model_data = list(y=y,
-                  s_mean=mu_kj,
-                  s_sd=sigma_kj,
+model_data = list(y=consumer,
+                  s_mean=mu_s,
+                  s_sd=sigma_s,
                   c_mean=mu_c,
                   c_sd=sigma_c,
                   q=q, 
-                  N=nrow(y),
-                  K=length(sources$Sources),
-                  J=ncol(y),
-                  x1 = x1,
-                  x2 = x2)
+                  N=nrow(consumer),
+                  K=4,
+                  ncov = 5,
+                  J=2,
+                  x = Xmat)
 
 
-model_parameters <- c("alpha", "beta", "sigma", "p")
+model_parameters <- c("beta", "sigma", "p")
 
 # Run the model
 model_run <- jags(
@@ -59,4 +97,6 @@ model_run <- jags(
 
 
 print(model_run)
-```
+
+
+

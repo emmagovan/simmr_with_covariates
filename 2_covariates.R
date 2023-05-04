@@ -26,10 +26,10 @@ conc <- geese_data[[4]]
 n <- nrow(consumer)
 n_isotopes <- 2
 K <- nrow(sources)
-mu_s <- sources[, c(2, 4)] #+ disc[, c(2,4)]
-sigma_s <- sources[, c(3, 5)]
-mu_c <- TEFs[, c(2, 4)]
-sigma_c <- TEFs[, c(3, 5)]
+mu_s <- sources[, c(2, 3)] #+ disc[, c(2,4)]
+sigma_s <- sources[, c(4, 5)]
+mu_c <- TEFs[, c(2, 3)]
+sigma_c <- TEFs[, c(4, 5)]
 q <- conc[, c(2:3)]
 x1 <- consumer$Sex
 x2 <- consumer$Age
@@ -240,15 +240,31 @@ mean_beta_1 <- lambda_out[lambda_index$mu_beta[1,]]
 mean_beta_2 <- lambda_out[lambda_index$mu_beta[2,]]
 # The first alpha and beta should be a bit bigger
 
+theta_out <- sim_theta(3600, lambda_out)
 
-
-f<-matrix(NA, ncol = K, nrow = n)
-for(i in 1:n){
-  for(k in 1:K){
-    f[i,k]<-mean_alpha[k] + mean_beta_1[k] * x1[i] + mean_beta_2[k] * x2[i]
+alpha <- colMeans(theta_out[,1:K])
+beta_1 <- colMeans(theta_out[,(K + 1):(2 * K)])
+beta_2 <- colMeans(theta_out[,(2 * K +1):(3 * K)])
+sigma <- colMeans(theta_out[,(3 * K + 1):(3 * K + 2)])
+f <- matrix(NA, ncol = K, nrow = n)
+for (i in 1:n) {
+  for (k in 1:K) {
+    f[i, k] <- alpha[k] + beta_1[k] * x1[i] + beta_2[k] * x2[i]
   }
 }
-p<-matrix(NA, ncol = K, nrow = n)
-for(i in 1:n){
-  p[i,] <- exp(f[i,1:K]) / (sum((exp(f[i,1:K]))))
+p <- matrix(NA, ncol = K, nrow = n)
+for (i in 1:n) {
+  p[i, ] <- exp(f[i, 1:K]) / (sum((exp(f[i, 1:K]))))
 }
+# 
+# 
+# f<-matrix(NA, ncol = K, nrow = n)
+# for(i in 1:n){
+#   for(k in 1:K){
+#     f[i,k]<-mean_alpha[k] + mean_beta_1[k] * x1[i] + mean_beta_2[k] * x2[i]
+#   }
+# }
+# p<-matrix(NA, ncol = K, nrow = n)
+# for(i in 1:n){
+#   p[i,] <- exp(f[i,1:K]) / (sum((exp(f[i,1:K]))))
+# }

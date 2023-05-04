@@ -25,18 +25,29 @@ conc <- geese_data[[4]]
 n <- nrow(consumer)
 n_isotopes <- 2
 K <- nrow(sources)
-mu_s <- sources[, c(2, 4)] #+ disc[, c(2,4)]
-sigma_s <- sources[, c(3, 5)]
-mu_c <- TEFs[, c(2, 4)]
-sigma_c <- TEFs[, c(3, 5)]
+mu_s <- sources[, c(2, 3)] #+ disc[, c(2,4)]
+sigma_s <- sources[, c(4, 5)]
+mu_c <- TEFs[, c(2, 3)]
+sigma_c <- TEFs[, c(4, 5)]
 q <- conc[, c(2:3)]
-x <- matrix(c(consumer$Sex, consumer$Wing, consumer$Skull, consumer$`Net Wt`), 
+#consumer$Skull, consumer$Wing, consumer$`Net Wt`
+x <- matrix(c(rep(1,9),consumer$Sex, consumer$Age, consumer$Skull), 
             nrow = 4, 
             byrow = TRUE)
-n_covariates <- nrow(x)
+n_covariates <- nrow(x) -1
 y <- consumer |>
   select(d13C_Pl, d15N_Pl) |>
   as.matrix()
+
+# Get the data into simmr
+simmr_groups = simmr_load(mixtures=as.matrix(y),
+                          source_names=unlist(sources[,1]),
+                          source_means=as.matrix(sources[,c(2,3)]),
+                          source_sds=as.matrix(sources[,c(4,5)]),
+                          correction_means=as.matrix(TEFs[,c(2,3)]),
+                          correction_sds=as.matrix(TEFs[,c(4,5)]),
+                          concentration_means = as.matrix(conc[,2:3]))
+
 
 # Variables for the FFVB
 S <- 100
@@ -49,14 +60,17 @@ sigma_beta_zero <- matrix(c(rep(1, K * (n_covariates +1))),
                           ncol = K)
 
 n_isotopes <- ncol(mu_c)
-c_0 <- c(rep(1, n_isotopes))
-d_0 <- c(rep(1, n_isotopes))
+c_0 <- c(rep(0.01, n_isotopes)) #Change to 0.0001
+d_0 <- c(rep(0.01, n_isotopes))
 beta_lambda<-c(rep(0, K),rep(1, K * (K + 1) / 2))
 lambda <- c(
   rep(beta_lambda, n_covariates +1),
-  rep(1, n_isotopes), #shape
-  rep(1, n_isotopes) #rate
+  rep(0.01, n_isotopes), #shape
+  rep(0.01, n_isotopes) #rate
 )
+
+x_scaled <- scale(x)
+
 
 # function to extract lambdas --------------------------------------------
 lambda_extract <- function(n_covariates, K, n_isotopes){
@@ -84,34 +98,9 @@ lambda_index <- lambda_extract(n_covariates, K, n_isotopes)
 
 # sim_theta ---------------------------------------------------------------
 
+
 sim_theta <- function(S = 100, lambda) {
-  # lambda contains the parameters
-  # mean_alpha, 1:K
-  # chol(Sigma_alpha), (K + 1):(K + (K * (K + 1)) / 2)
-  # mean_beta_1, (K + (K * (K + 1) / 2) + 1):(2 * K + (K * (K + 1) / 2))
-  # chol(Sigma_beta_1), (2 * K + (K * (K + 1) / 2) + 1):(K * (K + 1) + 2 * K)
-  # mean_beta_2, (K * (K + 1) + 2 * K + 1):(K * (K + 1) + 3 * K)
-  # chol(Sigma_beta), (K * (K + 1) + 3 * K + 1):(K * (K + 1) + 3 * K + K * (K + 1)/2)
-  # sigma_j_shape, (K * (K + 1) + 3 * K + K * (K + 1)/2 +1):(K * (K + 1) + 3 * K + K * (K + 1)/2 +n_isotopes)
-  # sigma_j_scale, (K * (K + 1) + 3 * K + K * (K + 1)/2 +n_isotopes +1):(K * (K + 1) + 3 * K + K * (K + 1)/2 + 2* n_isotopes)
-  
-  # mean_alpha <- lambda[lambda_index$mu_alpha]
-  # 
-  # # K*(K-1) precision terms
-  # chol_prec_alpha <- matrix(0, nrow = K, ncol = K)
-  # chol_prec_alpha[upper.tri(chol_prec_alpha, diag = TRUE)] <-
-  #   lambda[lambda_index$sigma_alpha]
-  # 
-  # mean_beta_1 <- lambda[lambda_index$mu_beta[1,]]
-  # chol_prec_beta_1 <- matrix(0, nrow = K, ncol = K)
-  # chol_prec_beta_1[upper.tri(chol_prec_beta_1, diag = TRUE)] <-
-  #   lambda[lambda_index$sigma_beta[1,]]
-  # 
-  # mean_beta_2 <- lambda[lambda_index$mu_beta[2,]]
-  # chol_prec_beta_2 <- matrix(0, nrow = K, ncol = K)
-  # chol_prec_beta_2[upper.tri(chol_prec_beta_1, diag = TRUE)] <-
-  #   lambda[lambda_index$sigma_beta[2,]]
-  # 
+ 
   ## Create a loop instead to do this I think? Will need to make an array?
   mean_beta <- matrix(0, nrow = (n_covariates +1), ncol = K)
   for(i in 1:(n_covariates+1)){
@@ -165,22 +154,21 @@ theta <- sim_theta(S, lambda)
 # Log of likelihood added to prior
 h <- function(theta) {
   # Create betas and sigma
-  beta <- matrix(theta[1:((n_covariates +1) * K)], nrow = (n_covariates+1))
+  beta <- matrix(theta[1:((n_covariates +1) * K)], nrow = (n_covariates+1), byrow = TRUE)
   sigma <- theta[((n_covariates +1) * K +1):(((n_covariates +1) * K)+n_isotopes)]
-  f <- matrix(NA, ncol = K, nrow = n)
-  X<-rbind(c(rep(1, n)), x) #This just adds a row of ones for the alpha
+  f <- matrix(NA, ncol = K, nrow = n) 
   
   #Need to double check that this maths is right!!
   
-  for (i in 1:n) {
-    for (k in 1:K) {
-      f[i, ] <-  beta[k,] * X[k,i]
-    }
-  }
+   for (i in 1:n) {
+     for (k in 1:K) {
+      f[i,k] <-  sum(x_scaled[,i] * beta[,k])
+     }
+   }
   p <- matrix(NA, ncol = K, nrow = n)
   
   for (i in 1:n) {
-    p[i, ] <- exp(f[i, 1:K]) / (sum((exp(f[i, 1:K]))))
+    p[i, ] <- exp(f[i,]) / (sum((exp(f[i,]))))
   }
   
   ## Im not sure this bit needs to be looped over?
@@ -211,45 +199,45 @@ h(theta[1, ])
 # log_q -------------------------------------------------------------------
 
 log_q <- function(lambda, theta) {
-  mean_alpha <- lambda[lambda_index$mu_alpha]
-  chol_prec_alpha <- matrix(0, nrow = K, ncol = K)
-  chol_prec_alpha[upper.tri(chol_prec_alpha, diag = TRUE)] <-
-    lambda[lambda_index$sigma_alpha]
   
-  mean_beta_1 <- lambda[lambda_index$mu_beta[1,]]
-  chol_prec_beta_1 <- matrix(0, nrow = K, ncol = K)
-  chol_prec_beta_1[upper.tri(chol_prec_beta_1, diag = TRUE)] <-
-    lambda[lambda_index$sigma_beta[1,]]
+  ## Create a loop instead to do this I think? Will need to make an array?
+  mean_beta <- matrix(0, nrow = (n_covariates +1), ncol = K)
+  for(i in 1:(n_covariates+1)){
+    mean_beta[i,] <- lambda[lambda_index$mu_beta[i,]]
+  }
   
-  mean_beta_2 <- lambda[lambda_index$mu_beta[2,]]
-  chol_prec_beta_2 <- matrix(0, nrow = K, ncol = K)
-  chol_prec_beta_2[upper.tri(chol_prec_beta_1, diag = TRUE)] <-
-    lambda[lambda_index$sigma_beta[2,]]
+  chol_prec_beta <- array(data = 0, dim = c(K, K, (n_covariates +1)))
+  
+  for(i in 1:(n_covariates +1)){
+    chol_prec_beta[,,i][upper.tri(chol_prec_beta[,,i], diag = TRUE)] <-
+      lambda[lambda_index$sigma_beta[i,]]
+  }
+  a<-array(NA, dim =c(S, K, (n_covariates+1)))
+  thetabeta<-matrix(NA, ncol = (n_covariates+1) * K, nrow = S)
   
   shape_sigma <- lambda[lambda_index$c]
   rate_sigma <- lambda[lambda_index$d]
   
   # Extract alpha, beta and sigma from theta
-  alpha <- theta[1:K]
-  beta_1 <- theta[(K + 1):(2 * K)]
-  beta_2 <- theta[(2 * K + 1):(3 * K)]
-  sigma <- theta[(3 * K + 1):(3 * K + n_isotopes)]
+  beta <- matrix(theta[1:((n_covariates +1) * K)], nrow = (n_covariates+1), ncol = K,  byrow = TRUE)
+  sigma <- theta[((n_covariates +1) * K +1):(((n_covariates +1) * K)+n_isotopes)]
   
   # This is a placeholder for more advanced code using chol_prec directly
   # prec <- crossprod(chol_prec)
-  p1 <- matrix(alpha - mean_alpha, nrow = 1) %*% t(chol_prec_alpha)
-  p2 <- matrix(beta_1 - mean_beta_1, nrow = 1) %*% t(chol_prec_beta_1)
-  p3 <- matrix(beta_2 - mean_beta_2, nrow = 1) %*% t(chol_prec_beta_2)
-  # log_det <- unlist(determinant(prec, logarithm = TRUE))["modulus"]
-  return(- 0.5 * K * log(2 * pi) 
-         - 0.5 * sum(log(diag(chol_prec_alpha))) 
-         - 0.5 * p1 %*% t(p1) 
-         - 0.5 * K * log(2 * pi) 
-         - 0.5 * sum(log(diag(chol_prec_beta_1))) 
-         - 0.5 * p2 %*% t(p2) 
-         - 0.5 * K * log(2 * pi) 
-         - 0.5 * sum(log(diag(chol_prec_beta_2))) 
-         - 0.5 * p3 %*% t(p3)
+  p_mat <- matrix(NA, nrow = n_covariates + 1, ncol = K) #row for each beta
+  for(l in 1:(n_covariates +1)){
+    p_mat[l,] <- (matrix(beta[l,] - mean_beta[l,], nrow = 1) %*% t(chol_prec_beta[,,l]))
+  }
+  
+ sum_p = 0
+ for(l in 1:(n_covariates +1)){
+   sum_p = sum_p - 0.5 * K * log(2 * pi)-
+                   0.5 * sum(log(diag(chol_prec_beta[,,l])))-
+                   0.5 * matrix(p_mat[l,], nrow = 1) %*% (p_mat[l,])
+                  
+ }
+  
+  return(sum_p
          + sum(dgamma(sigma,
                       shape = shape_sigma,
                       rate = rate_sigma,
@@ -262,21 +250,71 @@ log_q <- function(lambda, theta) {
 
 lambda_out <- run_VB(lambda)
 
-# Check results
-mean_alpha <- lambda_out[lambda_index$mu_alpha]
-mean_beta_1 <- lambda_out[lambda_index$mu_beta[1,]]
-mean_beta_2 <- lambda_out[lambda_index$mu_beta[2,]]
-# The first alpha and beta should be a bit bigger
+n_samples <- 3600
+
+# Check results ---------------------------------
+theta_out <- sim_theta(n_samples, lambda_out)
+
+#Easy way
+beta<-matrix(colMeans(theta_out[,1:(K*(n_covariates+1))]), ncol = (n_covariates +1), byrow = TRUE)
+sigma <- colMeans(theta_out[,(K*(n_covariates+1)+1):(K*(n_covariates+1)+n_isotopes)])
+f <- matrix(NA, ncol = K, nrow = n)
+f1 <- matrix(NA, ncol = K, nrow = n)
+ for (i in 1:n) {
+   for (k in 1:K) {
+     f1[i,k] <- x_scaled[1,i] * beta[1,k] + 
+       x_scaled[2,i] * beta[2,k]
+     x_scaled[3,i] * beta[3,k]
+     x_scaled[4,i] * beta[4,k]
+   
+   }
+ }
+
+
+p1 <- matrix(NA, ncol = K, nrow = n)
+
+for (i in 1:n) {
+  p1[i, ] <- exp(f1[i, 1:K]) / (sum((exp(f1[i, 1:K]))))
+}
 
 
 
-f<-matrix(NA, ncol = K, nrow = n)
-for(i in 1:n){
-  for(k in 1:K){
-    f[i,k]<-mean_alpha[k] + mean_beta_1[k] * x1[i] + mean_beta_2[k] * x2[i]
+
+
+#### Making multiple samples
+
+
+beta <- matrix(theta_out[,1:((n_covariates +1) * K)], ncol = (K *(n_covariates+1)), nrow = n_samples,  byrow = TRUE)
+# beta <- matrix(theta_out[1,1:((n_covariates +1) * K)], nrow = (n_covariates+1), byrow = TRUE)
+# sigma <- theta_out[1, ((n_covariates +1) * K +1):(((n_covariates +1) * K)+n_isotopes)]
+#beta<-matrix(lambda_out[1:(n_covariates+1 * K)]
+
+f <- array(NA, dim = c(n, K, n_samples))
+#X<-(rbind(c(rep(1, n)), x_scaled)) #This just adds a row of ones for the alpha
+
+
+for(s in 1:n_samples){
+for (i in 1:n) {
+  for (k in 1:K) {
+    f[i,k,s] <-  sum(x_scaled[,i] * beta[s,k])
   }
 }
-p<-matrix(NA, ncol = K, nrow = n)
-for(i in 1:n){
-  p[i,] <- exp(f[i,1:K]) / (sum((exp(f[i,1:K]))))
 }
+
+p <- array(NA, dim = c(n, K, n_samples))
+
+for (i in 1:n) {
+  for (s in 1:n_samples){
+  p[i,,s ] <- exp(f[i,,s]) / (sum((exp(f[i,,s]))))
+  }
+}
+
+
+
+
+
+
+
+
+
+
