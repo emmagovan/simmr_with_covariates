@@ -33,14 +33,15 @@ sigma_c <- TEFs[, c(4, 5)]
 q <- conc[, c(2:3)]
 
 #consumer$Skull, consumer$Wing, consumer$`Net Wt`
-x <- matrix(c(rep(1,9), consumer$Sex, consumer$Age, consumer$Skull), 
-            nrow = 4, 
-            byrow = TRUE)
+x <- matrix(c(consumer$Sex, consumer$Skull), 
+            ncol = 2)
+n_covariates <- (ncol(x))
 
 # Xmat<-matrix(c(rep(1,9),consumer$Sex, consumer$Wing, consumer$Skull, consumer$`Net Wt`), 
 #              nrow = 5, 
 #              byrow = TRUE)
-Xmat<-scale(x)
+Xmat <- matrix(c(rep(1, nrow(x)), scale(x)), ncol = n_covariates +1)
+
 
 model_code <- "
 model{
@@ -60,7 +61,7 @@ model{
   }
   for(k in 1:K) {
   for(i in 1:N) {
-      mu_f[i,k] = inprod(x[,i], beta[,k])
+      mu_f[i,k] = inprod(x[i,], beta[,k])
   }
   
   
@@ -83,7 +84,7 @@ model_data = list(y=consumer,
                   q=q, 
                   N=nrow(consumer),
                   K=4,
-                  ncov = nrow(Xmat) -1,
+                  ncov = n_covariates,
                   J=2,
                   x = Xmat)
 

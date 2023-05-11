@@ -31,10 +31,10 @@ mu_c <- TEFs[, c(2, 3)]
 sigma_c <- TEFs[, c(4, 5)]
 q <- conc[, c(2:3)]
 #consumer$Skull, consumer$Wing, consumer$`Net Wt`
-x <- matrix(c(consumer$Sex, consumer$Skull, consumer$Wing, consumer$Age, ), 
-            nrow = 4, 
-            byrow = TRUE)
-n_covariates <- (nrow(x))
+x <- matrix(c(consumer$Sex, consumer$Skull, consumer$Wing, consumer$Age, (consumer$`Net Wt`/100)), 
+            ncol = 5)
+
+n_covariates <- (ncol(x))
 y <- consumer |>
   select(d13C_Pl, d15N_Pl) |>
   as.matrix()
@@ -69,7 +69,7 @@ lambda <- c(
   rep(1, n_isotopes) #rate
 )
 
-x_scaled <- matrix(c(rep(1, ncol(x)), scale(x)), nrow = n_covariates +1, byrow = TRUE)
+x_scaled <- cbind(matrix(rep(1, nrow(x)), ncol = 1), scale(x))
 
 
 # function to extract lambdas --------------------------------------------
@@ -156,23 +156,26 @@ h <- function(theta) {
   # Create betas and sigma
   beta <- matrix(theta[1:((n_covariates +1) * K)], nrow = (n_covariates+1), byrow = TRUE)
   sigma <- theta[((n_covariates +1) * K +1):(((n_covariates +1) * K)+n_isotopes)]
-  f <- matrix(NA, ncol = K, nrow = n) 
+  f <- matrix(NA, ncol = n, nrow = K) 
   
   #Need to double check that this maths is right!!
   
-   for (i in 1:n) {
-     for (k in 1:K) {
-      f[i,k] <-  sum(x_scaled[,i] * beta[,k])
-     }
-   }
+     # for (k in 1:K) {
+     #  f[,k] <-  (x_scaled %*% beta[,k])
+     # }
+     # 
+  
+   f = x_scaled %*% beta
+  
   p <- matrix(NA, ncol = K, nrow = n)
   
   for (i in 1:n) {
-    p[i, ] <- exp(f[i,]) / (sum((exp(f[i,]))))
+    p[i, ] <- exp(f[i,1:K]) / (sum((exp(f[i,1:K]))))
   }
   
   ## Im not sure this bit needs to be looped over?
-  hold <- 0
+ 
+   hold <- 0
   for (i in 1:n) {
     for (j in 1:n_isotopes) {
       hold <- hold + sum(dnorm(y[i, j],
@@ -256,19 +259,14 @@ n_samples <- 3600
 theta_out <- sim_theta(n_samples, lambda_out)
 
 #Easy way
-beta<-matrix(colMeans(theta_out[,1:(K*(n_covariates+1))]), ncol = (n_covariates +1), byrow = TRUE)
+beta<-matrix(colMeans(theta_out[,1:(K*(n_covariates+1))]), nrow = (n_covariates +1))
 sigma <- colMeans(theta_out[,(K*(n_covariates+1)+1):(K*(n_covariates+1)+n_isotopes)])
 
 f1 <- matrix(NA, ncol = K, nrow = n)
 
- for (i in 1:n) {
-   for (k in 1:K) {
-
-    f1[i,k] <- x_scaled[,i] %*% beta[k,]
-   
-   }
- }
-
+for(k in 1:K){
+f1[,k] = x_scaled %*% beta[,k]
+}
 
 p1 <- matrix(NA, ncol = K, nrow = n)
 
@@ -276,37 +274,54 @@ for (i in 1:n) {
   p1[i, ] <- exp(f1[i, 1:K]) / (sum((exp(f1[i, 1:K]))))
 }
 
+## Multiple samples - I'm not 100% sure this works
+beta_s <- array((theta_out[,1:(K*(n_covariates+1))]), dim = c((n_covariates+1), K, n_samples))
+f_s <- array(NA, dim = c(n, K, n_samples))
+
+for(s in 1:n_samples){
+  for(k in 1:K){
+    f_s[,k,s] = x_scaled %*% beta_s[,k,s]
+  }
+}
+
+p1_s <- array(NA, dim = c(n,K, n_samples))
+
+for(s in 1:n_samples){
+for (i in 1:n) {
+  p1_s[i,,s ] <- exp(f_s[i, 1:K,s]) / (sum((exp(f_s[i, 1:K,s]))))
+}
+}
 
 
 
 
 #### Making multiple samples
 
-
-beta <- matrix(theta_out[,1:((n_covariates +1) * K)], ncol = (K *(n_covariates+1)), nrow = n_samples,  byrow = TRUE)
-# beta <- matrix(theta_out[1,1:((n_covariates +1) * K)], nrow = (n_covariates+1), byrow = TRUE)
-# sigma <- theta_out[1, ((n_covariates +1) * K +1):(((n_covariates +1) * K)+n_isotopes)]
-#beta<-matrix(lambda_out[1:(n_covariates+1 * K)]
-
-f <- array(NA, dim = c(n, K, n_samples))
-#X<-(rbind(c(rep(1, n)), x_scaled)) #This just adds a row of ones for the alpha
-
-
-for(s in 1:n_samples){
-for (i in 1:n) {
-  for (k in 1:K) {
-    f[i,k,s] <-  sum(x_scaled[,i] * beta[s,k])
-  }
-}
-}
-
-p <- array(NA, dim = c(n, K, n_samples))
-
-for (i in 1:n) {
-  for (s in 1:n_samples){
-  p[i,,s ] <- exp(f[i,,s]) / (sum((exp(f[i,,s]))))
-  }
-}
+# 
+# beta <- matrix(theta_out[,1:((n_covariates +1) * K)], ncol = (K *(n_covariates+1)), nrow = n_samples,  byrow = TRUE)
+# # beta <- matrix(theta_out[1,1:((n_covariates +1) * K)], nrow = (n_covariates+1), byrow = TRUE)
+# # sigma <- theta_out[1, ((n_covariates +1) * K +1):(((n_covariates +1) * K)+n_isotopes)]
+# #beta<-matrix(lambda_out[1:(n_covariates+1 * K)]
+# 
+# f <- array(NA, dim = c(n, K, n_samples))
+# #X<-(rbind(c(rep(1, n)), x_scaled)) #This just adds a row of ones for the alpha
+# 
+# 
+# for(s in 1:n_samples){
+# for (i in 1:n) {
+#   for (k in 1:K) {
+#     f[i,k,s] <-  sum(x_scaled[i,] * beta[s,k])
+#   }
+# }
+# }
+# 
+# p <- array(NA, dim = c(n, K, n_samples))
+# 
+# for (i in 1:n) {
+#   for (s in 1:n_samples){
+#   p[i,,s ] <- exp(f[i,,s]) / (sum((exp(f[i,,s]))))
+#   }
+# }
 
 
 
