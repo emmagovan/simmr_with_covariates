@@ -274,6 +274,7 @@ for (i in 1:n) {
   p1[i, ] <- exp(f1[i, 1:K]) / (sum((exp(f1[i, 1:K]))))
 }
 
+
 ## Multiple samples - I'm not 100% sure this works
 beta_s <- array((theta_out[,1:(K*(n_covariates+1))]), dim = c((n_covariates+1), K, n_samples))
 f_s <- array(NA, dim = c(n, K, n_samples))
