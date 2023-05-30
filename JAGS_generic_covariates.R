@@ -33,8 +33,8 @@ sigma_c <- TEFs[, c(4, 5)]
 q <- conc[, c(2:3)]
 
 #consumer$Skull, consumer$Wing, consumer$`Net Wt`
-x <- matrix(c(consumer$Sex, consumer$Skull), 
-            ncol = 2)
+x <- matrix(c(consumer$Sex, consumer$Skull, consumer$`Net Wt`, consumer$Wing, consumer$Age), 
+            ncol = 5)
 n_covariates <- (ncol(x))
 
 # Xmat<-matrix(c(rep(1,9),consumer$Sex, consumer$Wing, consumer$Skull, consumer$`Net Wt`), 

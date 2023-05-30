@@ -6,6 +6,7 @@ using namespace Rcpp;
 
 static double const log2pi = std::log(2.0 * M_PI);
 
+
 void inplace_tri_mat_mult(arma::rowvec &x, arma::mat const &trimat){
   arma::uword const n = trimat.n_cols;
   
@@ -44,6 +45,7 @@ arma::vec dmvnrm_arma_fast(arma::mat const &x,
   return exp(out);
 }
 
+
 // [[Rcpp::export]]
 NumericMatrix crossprod(NumericMatrix X){
   NumericMatrix ans(X.nrow(), X.ncol());
@@ -57,6 +59,22 @@ NumericMatrix crossprod(NumericMatrix X){
     }}
   return(ans);
 }
+
+// [[Rcpp::export]]
+NumericMatrix matmult(NumericMatrix x, NumericMatrix y) {
+  NumericMatrix ans(x.nrow(), y.ncol());
+  
+  for(int i = 0; i<x.nrow(); i++){
+    for(int j=0; j<y.ncol(); j++){
+      for(int k =0; k<y.nrow(); k++){
+        
+        ans(i,j) += x(i,k) * y(k,j);
+      }
+    }}
+  
+  return ans;
+}
+
 
 // [[Rcpp::export]]
 NumericMatrix rMVNormCpp(const double n,
@@ -81,6 +99,7 @@ NumericMatrix rMVNormCpp(const double n,
 }
 
 
+
 // [[Rcpp::export]]
 NumericMatrix solvearma(const NumericMatrix X) {
   
@@ -94,87 +113,118 @@ NumericMatrix solvearma(const NumericMatrix X) {
   return Rcpp::wrap(ans.t());
 }
 
-// NEED TO EDIT THIS FUNCTION
 
 //[[Rcpp::export]]
-NumericMatrix sim_thetacpp(int S, NumericVector lambda, int n_sources, 
-                           int n_tracers){
-  NumericMatrix theta(S, (n_sources + n_tracers));
+NumericMatrix sim_thetacpp(int S, NumericVector lambda, int n_sources,
+                           int n_tracers, int n_cov){
+  NumericMatrix theta(S, (n_cov*n_sources + n_tracers));
+  NumericMatrix mean_beta((n_cov), n_sources);
+  int mat_size = n_sources * (n_sources+1) /2;
   
-  NumericVector mean(n_sources);
-  
-  for(int i = 0; i<n_sources; i++){
-    mean(i) = lambda(i);
+  for(int i=0; i<n_cov; i++){
+    for(int k=0; k<n_sources;k++){
+      mean_beta(i,k) = lambda(i * mat_size + i * n_sources + k);
+    }
   }
   
+  NumericMatrix sig_beta(n_cov, mat_size);
   
-  NumericMatrix chol_prec(n_sources, n_sources);
-  int count = 0;
-  for(int j = 0; j< n_sources; j++){ 
-    for(int i = 0; i<n_sources; i++){
-      if (i <= j){
-        count +=1;
-        chol_prec((i),(j)) = lambda(n_sources -1 +count);
-        
-        
-      }
-      else{
-        chol_prec(i,j) = 0;
-      }
+  for(int m = 0; m<mat_size; m++){
+    for(int i =0; i<n_cov; i++){
+      sig_beta(i,m) = lambda(i* mat_size + (i+1) * n_sources + m);
       
     }
   }
   
-  NumericMatrix normmat(S, n_sources);
+  NumericVector count(n_cov);
+  
+  for(int i =0; i<n_cov; i++){
+    count(i) = 0;
+  }
+  
+  arma::cube chol_prec(n_sources, n_sources, n_cov);
+  
+  for(int j = 0; j< n_sources; j++){
+    for(int i = 0; i<n_sources; i++){
+      for(int m = 0; m<n_cov; m++){
+        if (i <= j){
+          count(m) +=1;
+          chol_prec(i,j,m) = sig_beta(m, count(m)-1);
+          
+          
+        }
+        
+        else{
+          chol_prec(i,j,m) = 0;
+        }
+      }
+    }
+  }
   
   
-  normmat = rMVNormCpp(S, mean, chol_prec);
+  
+  
+  arma::mat theta_arma(S, (n_cov*n_sources + n_tracers)); //Want to go from chol_prec array to
+  // A matrix of thetas generated using rMVNormCpp
+  
+  for(int i=0; i<n_cov; i++){
+    theta_arma.submat(0, (i)*n_sources, S-1, (i+1)*n_sources - 1) = as<arma::mat>(rMVNormCpp(S, mean_beta(i,_), Rcpp::wrap(chol_prec.slice(i))));
+  }
+  
+  theta = Rcpp::wrap(theta_arma);
   
   
   
   for(int i = 0; i<n_tracers; i++){
-    theta(_,i+n_sources) = Rcpp::rgamma(S,  lambda((n_sources + (n_sources * (n_sources + 1)) / 2) + i),
-          1/lambda(((n_sources + (n_sources * (n_sources + 1)) / 2)) + n_tracers + i));
+    theta(_,i+n_sources*n_cov) = (Rcpp::rgamma(S,  lambda(n_cov * mat_size + n_cov *n_sources +i),
+                                  1/lambda(n_cov * mat_size + n_cov *n_sources +i + n_tracers)));
   }
-  
-  
-  for(int i=0; i<n_sources; i++){
-    theta(_,i) = normmat(_,i);
-  }
-  
   
   
   return theta;
-  
 }
 
 
-
-//EDIT THIS - P NOT SAME ANY MORE?
-
-// This function takes theta and calculates the proportions
 //[[Rcpp::export]]
-NumericVector hfn(NumericVector theta, int n_sources){
-  NumericVector p(n_sources);
-  NumericVector exptheta(n_sources);
-  double sumexptheta =0;
+NumericMatrix hfn(NumericVector theta, int n_sources, int n, int n_cov, NumericMatrix x_scaled){
+  NumericMatrix p(n, n_sources);
+  NumericMatrix exptheta(n_sources, n_sources);
+  NumericMatrix f(n, n_sources);
+  NumericMatrix beta(n_cov, n_sources);
   
-  // gets exp of each theta
-  for(int i = 0; i<n_sources; i++){
-    exptheta(i) = exp(theta(i));
-    
+  
+  for(int i = 0; i<n_cov; i++){
+    for(int j=0; j<n_sources; j++){
+      beta(i,j) = theta((i)*n_sources +j);
+    }
   }
   
-  // calculates sum of all exp thetas
-  for(int i =0; i<n_sources; i++){
-    sumexptheta +=exptheta[i];
-    
+  f = matmult(x_scaled, beta);
+  
+  
+  NumericMatrix expf(n, n_sources); 
+  
+  for(int i =0; i<n; i++){
+    for(int j = 0; j<n_sources; j++){
+      expf(i,j) = exp(f(i,j));
+    }
   }
-  // calculates p
-  for(int i = 0; i<n_sources; i++){
-    p[i] = exptheta[i]/sumexptheta;
-    
+  
+  NumericVector sumexpf(n);
+  
+  for(int i = 0; i<n; i++){
+    for(int j=0; j<n_sources; j++){
+      sumexpf(i) +=expf(i,j);
+    }
   }
+  
+  for(int i=0; i<n; i++){
+    for(int j =0; j<n_sources; j++){
+      p(i,j) = expf(i,j)/sumexpf(i);
+    }
+  }
+  
+  
   
   return p;
   
