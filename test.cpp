@@ -239,147 +239,245 @@ NumericMatrix hfn(NumericVector theta, int n_sources, int n, int n_cov, NumericM
 //[[Rcpp::export]]
 double hcpp(int n_sources, int n_isotopes, int n_covariates,
             double beta_prior,
+            NumericMatrix x_scaled,
             NumericMatrix concentrationmeans, NumericMatrix sourcemeans,
             NumericMatrix correctionmeans,
-            NumericMatrix corrsds, NumericMatrix sourcesds, NumericVector theta, NumericMatrix y ){
+            NumericMatrix corrsds, NumericMatrix sourcesds,
+            NumericVector theta, NumericMatrix y){
+
+
+
+  Rcpp::NumericMatrix beta(n_covariates, n_sources);
+
+  for(int i = 0; i<n_covariates; i++){
+    for(int j=0; j<n_sources; j++){
+      beta(i,j) = theta((i)*n_sources +j);
+    }
+  }
+
+  int n = y.rows();
   
-  double x =0;
-  
-  NumericVector p(n_sources);
-  
-  p = hfn(theta, n_sources);
-  
-  double ly = y.rows();
-  
+  NumericMatrix p(n, n_sources);
+
+  p = hfn(theta, n_sources, n, n_covariates, x_scaled);
+
+
+
   // Setting prior values for hyper parameters
   NumericMatrix prior_means(n_covariates, n_sources);
   NumericMatrix prior_sd(n_covariates, n_sources);
   NumericVector c_0(n_isotopes);
   NumericVector d_0(n_isotopes);
-  
+
   // Setting up prior values
   for(int i=0; i<n_covariates; i++){
     for(int j=0; j<n_sources; j++){
-    
+
     prior_means(i,j) = 0;
     prior_sd(i,j) = 1;
   }
   }
-  
+
   for (int i = 0; i<n_isotopes; i++){
     c_0(i) = 0.001;
     d_0(i) = beta_prior;
   }
   
+  double hold = 0;
   
-    
-    
-    // This is to get dnorm(y[,1], sum(p*q) etc)
-    double mutop1 = 0;
-    double mubtm1 = 0;
-    double mu1 = 0;
-    double sigmasq1 = 0;
-    double sigmatopsq1 = 0;
-    double sigmabtmsq1 = 0;
-    
-    
-    
-    // Calculate numerator and denominator of mu
-    for(int i=0; i<n_sources; i++){
-      for(int j=0; j<n_isotopes; j++){
-        mutop1 +=  p(i)*concentrationmeans(i,j) * (sourcemeans(i,0) + correctionmeans(i,0));
-        mubtm1 += p(i) * concentrationmeans(i,j);
-      }
+  NumericMatrix mutop(n*n_isotopes, n_sources);
+  NumericMatrix mubtm(n*n_isotopes, n_sources);
+  
+  for(int j=0; j<n_isotopes; j++){
+  for(int i=0; i<n; i++){
+      mutop(i+j*n,_) = p(i,_)*concentrationmeans(_,j) * (sourcemeans(_,j) + correctionmeans(_,j));
+      mubtm(i+j*n, _) = p(i,_)*concentrationmeans(_,j);
     }
-    
-    // Same for sigma
-    for(int i=0; i<n_sources; i++){
-      for(int j =0; j<n_isotopes; j++){
-        sigmatopsq1 += pow(p(i),2) * pow(concentrationmeans(i,j),2) * (pow(sourcesds(i,0),2) +
-          pow(corrsds(i,0),2));
-        sigmabtmsq1 += pow(p(i),2) * pow(concentrationmeans(i,j),2);
-      }
-    }
-    
-    //Calculate mu and sd
-    mu1 = mutop1/mubtm1;
-    sigmasq1 = sigmatopsq1/sigmabtmsq1;
-    double sigma1 = pow(sigmasq1 + 1/theta((n_sources)), 0.5);
-    
-    
-    // This is to get dnorm(y[,2], sum(p*q) etc)
-    double mutop2 = 0;
-    double mubtm2 = 0;
-    double mu2 = 0;
-    double sigmasq2 = 0;
-    double sigmatopsq2 = 0;
-    double sigmabtmsq2 = 0;
-    for(int i=0; i<n_sources; i++){
-      for(int j =0; j<n_isotopes; j++){
-        mutop2 += p(i) * concentrationmeans(i,j) * (sourcemeans(i,1) + correctionmeans(i,1));
-        mubtm2 += p(i) * concentrationmeans(i,j);
-      }
-    }
-    
-    
-    for(int i=0; i<n_sources; i++){
-      for(int j=0; j<n_isotopes; j++){
-        sigmatopsq2 += pow(p(i),2) * pow(concentrationmeans(i,j),2) * (pow(sourcesds(i,1),2) +
-          pow(corrsds(i,1),2));
-        sigmabtmsq2 += pow(p(i),2) * pow(concentrationmeans(i,j),2);
-      }
-    }
-    
-    mu2 = mutop2/mubtm2;
-    sigmasq2 = sigmatopsq2/sigmabtmsq2;
-    
-    double sigma2 = pow(sigmasq2 + 1/theta((1+n_sources)), 0.5);
-    
-    double yminusmu1 = 0;
-    double yminusmu2 = 0;
-    
-    for(int i = 0; i<ly; i++){
-      yminusmu1 += pow((y(i,0) - mu1),2);
-      yminusmu2 +=  pow((y(i,1) - mu2),2);
-    }
-    
-    
-    
-    // This is log(dnorm(y, p*q, p^2*q^2 etc) for y1 and y2
-    
-    x = - ly * log(sigma1) - 0.5 * ly * log(2 * M_PI)
-      - 0.5 * yminusmu1 * 1/(pow(sigma1,2))
-      - ly * log(sigma2) - 0.5 * ly * log(2 * M_PI)
-      - 0.5 * yminusmu2 * 1/(pow(sigma2,2));
-      
-      
-  
-  
-  double thetanorm = 0;
-  
-  
-  
-  
-  for(int i = 0; i<n_sources; i++){
-    thetanorm +=  - n_sources * log(prior_sd(i)) - 0.5 * log(2 * M_PI) - (pow((theta(i) - prior_means(i)), 2)
-                                                                            * 1/(2 * pow(prior_sd(i), 2)));
   }
   
+NumericVector musumt(n*n_isotopes);
+  NumericVector musumb(n*n_isotopes);
+  
+  for(int j=0; j<n_sources; j++){
+  for(int i=0; i<(n*n_isotopes); i++){
+      musumt(i) += mutop(i,j);
+      musumb(i) += mubtm(i,j);
+    }
+  }
+  
+  NumericVector mutotal(n*n_isotopes);
+  
+  for(int i=0; i<(n*n_isotopes); i++){
+    mutotal(i) = musumt(i)/musumb(i);
+  }
+  
+  // Now do the same for sigma
+  
+  NumericMatrix sigtop(n*n_isotopes, n_sources);
+  NumericMatrix sigbtm(n*n_isotopes, n_sources);
+  
+  for(int j=0; j<n_isotopes; j++){
+    for(int i=0; i<n; i++){
+      sigtop(i+j*n,_) = pow(p(i,_), 2)*pow(concentrationmeans(_,j),2) * (pow(sourcemeans(_,j),2) + pow(correctionmeans(_,j),2));
+      sigbtm(i+j*n, _) = pow(p(i,_)*concentrationmeans(_,j),2);
+    }
+  }
+  
+  NumericVector sigsumt(n*n_isotopes);
+  NumericVector sigsumb(n*n_isotopes);
+  
+  for(int j=0; j<n_sources; j++){
+    for(int i=0; i<(n*n_isotopes); i++){
+      sigsumt(i) += sigtop(i,j);
+      sigsumb(i) += sigbtm(i,j);
+    }
+  }
+  
+  NumericVector sigtotal(n*n_isotopes);
+  
+  for(int i=0; i<(n*n_isotopes); i++){
+    sigtotal(i) = pow(sigsumt(i)/sigsumb(i), 0.5);
+  }
+  
+  
+  for(int i=0; i<(n); i++){
+    for(int j=0; j<n_isotopes; j++){
+    hold = hold -n *log(sigtotal(i+j*n)) - 0.5 *n *log(2 * M_PI) - 
+      0.5 * pow((y(i,j)-mutotal(i+j*n)),2) * 1/pow(sigtotal(i+j*n),2);
+  }
+
+  }
+
+
+  double betanorm = 0;
+
+
+
+  for(int i = 0; i<n_covariates; i++){
+    for(int j=0; j<n_sources; j++){
+    betanorm +=  - n_sources * log(prior_sd(i,j)) - 0.5 * n_sources* log(2 * M_PI) -
+       0.5 * (pow((beta(i,j) - prior_means(i,j)), 2)
+      *1/pow(prior_sd(i,j), 2));
+  }
+  }
   double gammaprior = 0;
   for (int i=0; i <(n_isotopes); i++){
-    gammaprior += c_0(i) * log(d_0(i)) - log(tgamma(c_0(i))) +(c_0(i) - 1) * theta((i+n_sources)) -
-      d_0(i) * theta((i+n_sources));
-    
+    gammaprior += c_0(i) * log(d_0(i)) - log(tgamma(c_0(i))) +
+      (c_0(i) - 1) * theta((i+n_sources*n_covariates))-
+      d_0(i) * theta((i+n_sources*n_covariates));
+
   }
+
+  double totx = hold + gammaprior + betanorm;
   
-  double totx = x + gammaprior + thetanorm;
-  
-  return totx;
-  
+   return (totx);
+
 }
 
 
 
+//[[Rcpp::export]]
+double log_q_cpp(NumericVector theta, NumericVector lambda, 
+                 int n_sources, int n_tracers, int S, int n_covariates){
+  
+  NumericMatrix mean_beta((n_covariates), n_sources);
+  int mat_size = n_sources * (n_sources+1) /2;
+  
+  for(int i=0; i<n_covariates; i++){
+    for(int k=0; k<n_sources;k++){
+      mean_beta(i,k) = lambda(i * mat_size + i * n_sources + k);
+    }
+  }
+  
+  NumericVector count(n_covariates);
+  
+  for(int i =0; i<n_covariates; i++){
+    count(i) = 0;
+  }
+  NumericMatrix sig_beta(n_covariates, mat_size);
+  
+  for(int m = 0; m<mat_size; m++){
+    for(int i =0; i<n_covariates; i++){
+      sig_beta(i,m) = lambda(i* mat_size + (i+1) * n_sources + m);
+      
+    }
+  }
+  
+  arma::cube chol_prec(n_sources, n_sources, n_covariates);
+  
+  for(int j = 0; j< n_sources; j++){
+    for(int i = 0; i<n_sources; i++){
+      for(int m = 0; m<n_covariates; m++){
+        if (i <= j){
+          count(m) +=1;
+          chol_prec(i,j,m) = sig_beta(m, count(m)-1);
+          
+          
+        }
+        
+        else{
+          chol_prec(i,j,m) = 0;
+        }
+      }
+    }
+  }
+  
+  Rcpp::NumericMatrix beta(n_covariates, n_sources);
+  
+  for(int i = 0; i<n_covariates; i++){
+    for(int j=0; j<n_sources; j++){
+      beta(i,j) = theta((i)*n_sources +j);
+    }
+  }
+  
+  NumericVector sigma(n_tracers);
+  
+  for(int i=0; i<n_tracers; i++){
+    sigma(i) = theta(n_covariates*n_sources+i);
+  }
+  
+  NumericMatrix pmat(n_covariates, n_sources);
+  
+  NumericMatrix y(n_covariates, beta.ncol());
+  
+  for(int i=0; i<n_covariates; i++){
+   y(i,_) = beta(i,_) - mean_beta(i,_);
+  }
+  
+
+  
+
+  
+
+
+ double thetanorm = 0;
+ for(int i=0; i<n_covariates; i++){
+   NumericMatrix prec(n_sources, n_sources);
+   prec = crossprod(Rcpp::wrap(chol_prec.slice(i)));
+   NumericMatrix solve_prec(n_sources, n_sources);
+   solve_prec = solvearma(prec);
+  thetanorm += *REAL(Rcpp::wrap(dmvnrm_arma_fast(as<arma::mat>(y), beta(i,_), as<arma::mat>(solve_prec))));
+ }
+
+    
+    
+    
+    double gamman = 0;
+    for (int i=0; i <(n_tracers); i++){
+      gamman += lambda(n_covariates * mat_size + n_covariates *n_sources +i) * log(lambda(n_covariates * mat_size + n_covariates *n_sources +i + n_tracers))  -
+      log(tgamma(lambda(n_covariates * mat_size + n_covariates *n_sources +i)))  +
+        lambda((n_covariates * mat_size + n_covariates *n_sources +i) - 1) * log(theta((i+n_sources*n_covariates))) - 
+      lambda(n_covariates * mat_size + n_covariates *n_sources +i + n_tracers) * theta((i+n_sources*n_covariates));
+    }
+    
+    
+    
+    
+    double x = thetanorm + gamman;
+    
+    return x;
+    
+}
 
 
 
