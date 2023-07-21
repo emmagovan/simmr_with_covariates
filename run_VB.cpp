@@ -18,7 +18,7 @@ void inplace_tri_mat_mult(arma::rowvec &x, arma::mat const &trimat){
   }
 }
 
-
+//dnorm 
 // [[Rcpp::export]]
 arma::vec dmvnrm_arma_fast(arma::mat const &x,  
                            arma::rowvec const &mean,  
@@ -45,7 +45,7 @@ arma::vec dmvnrm_arma_fast(arma::mat const &x,
   return exp(out);
 }
 
-
+//calculate crossproduct of 2 matrices
 // [[Rcpp::export]]
 NumericMatrix crossprod(NumericMatrix X){
   NumericMatrix ans(X.nrow(), X.ncol());
@@ -60,6 +60,7 @@ NumericMatrix crossprod(NumericMatrix X){
   return(ans);
 }
 
+//matrix multiplication
 // [[Rcpp::export]]
 NumericMatrix matmult(NumericMatrix x, NumericMatrix y) {
   NumericMatrix ans(x.nrow(), y.ncol());
@@ -75,7 +76,7 @@ NumericMatrix matmult(NumericMatrix x, NumericMatrix y) {
   return ans;
 }
 
-
+//rnorm sample
 // [[Rcpp::export]]
 NumericMatrix rMVNormCpp(const double n,
                          const arma::vec mu,
@@ -99,7 +100,7 @@ NumericMatrix rMVNormCpp(const double n,
 }
 
 
-
+//solves matrix
 // [[Rcpp::export]]
 NumericMatrix solvearma(const NumericMatrix X) {
   
@@ -113,7 +114,7 @@ NumericMatrix solvearma(const NumericMatrix X) {
   return Rcpp::wrap(ans.t());
 }
 
-
+//simulates S samples of theta - so several rnorms + rgamma
 //[[Rcpp::export]]
 NumericMatrix sim_thetacpp(int S, NumericVector lambda, int n_sources,
                            int n_tracers, int n_cov){
@@ -182,9 +183,14 @@ NumericMatrix sim_thetacpp(int S, NumericVector lambda, int n_sources,
   
   
   return theta;
+  // so this is K betas and then n_isotope taus 
+  // Tau is gamma distributed with shape and rate
+  // Need to check I'm using tau the whole way through and not sigma
 }
 
-
+//calculates p - which is exp(f) / sum exp(f)
+//and f is X * B
+//X is a matrix and B is a vector
 //[[Rcpp::export]]
 NumericMatrix hfn(NumericVector theta, int n_sources, int n, int n_cov, NumericMatrix x_scaled){
   NumericMatrix p(n, n_sources);
@@ -230,283 +236,329 @@ NumericMatrix hfn(NumericVector theta, int n_sources, int n, int n_cov, NumericM
   
 }
 
-// EDIT H
 
+//Log of likelihood added to prior
+//
+//
 //[[Rcpp::export]]
-double hcpp(int n_sources, int n_isotopes,
+double hcpp(int n_sources, int n_isotopes, int n_covariates,
             double beta_prior,
+            NumericMatrix x_scaled,
             NumericMatrix concentrationmeans, NumericMatrix sourcemeans,
             NumericMatrix correctionmeans,
-            NumericMatrix corrsds, NumericMatrix sourcesds, NumericVector theta, NumericMatrix y ){
+            NumericMatrix corrsds, NumericMatrix sourcesds,
+            NumericVector theta, NumericMatrix y){
   
-  double x =0;
   
-  NumericVector p(n_sources);
   
-  p = hfn(theta, n_sources);
+  Rcpp::NumericMatrix beta(n_covariates, n_sources);
   
-  double ly = y.rows();
+  for(int i = 0; i<n_covariates; i++){
+    for(int j=0; j<n_sources; j++){
+      beta(i,j) = theta((i)*n_sources +j);
+    }
+  }
+  
+  int n = y.rows();
+  
+  NumericMatrix p(n, n_sources);
+  
+  p = hfn(theta, n_sources, n, n_covariates, x_scaled);
+  
+  
   
   // Setting prior values for hyper parameters
-  NumericVector prior_means(n_sources);
-  NumericVector prior_sd(n_sources);
+  NumericMatrix prior_means(n_covariates, n_sources);
+  NumericMatrix prior_sd(n_covariates, n_sources);
   NumericVector c_0(n_isotopes);
   NumericVector d_0(n_isotopes);
   
   // Setting up prior values
-  for(int i=0; i<n_sources; i++){
-    prior_means(i) = 0;
-    prior_sd(i) = 1;
+  for(int i=0; i<n_covariates; i++){
+    for(int j=0; j<n_sources; j++){
+      
+      prior_means(i,j) = 0;
+      prior_sd(i,j) = 1;
+    }
   }
   
   for (int i = 0; i<n_isotopes; i++){
-    c_0(i) = 0.001;
+    c_0(i) = 1;
     d_0(i) = beta_prior;
   }
   
+  // Make sure these are set to zero
+  NumericMatrix mutop(n,n_isotopes);
+  NumericMatrix mubtm(n,n_isotopes);
   
-  if(n_isotopes == 2){
-    
-    
-    // This is to get dnorm(y[,1], sum(p*q) etc)
-    double mutop1 = 0;
-    double mubtm1 = 0;
-    double mu1 = 0;
-    double sigmasq1 = 0;
-    double sigmatopsq1 = 0;
-    double sigmabtmsq1 = 0;
-    
-    
-    
-    // Calculate numerator and denominator of mu
-    for(int i=0; i<n_sources; i++){
-      for(int j=0; j<n_isotopes; j++){
-        mutop1 +=  p(i)*concentrationmeans(i,j) * (sourcemeans(i,0) + correctionmeans(i,0));
-        mubtm1 += p(i) * concentrationmeans(i,j);
+  for(int j=0; j<n_isotopes; j++){
+    for(int i=0; i<n; i++){
+      for(int k=0; k<n_sources; k++){
+        mutop(i,j) += p(i,k)*concentrationmeans(k,j) * (sourcemeans(k,j) + correctionmeans(k,j));
+        mubtm(i,j) += p(i,k)*concentrationmeans(k,j);
       }
     }
-    
-    // Same for sigma
-    for(int i=0; i<n_sources; i++){
-      for(int j =0; j<n_isotopes; j++){
-        sigmatopsq1 += pow(p(i),2) * pow(concentrationmeans(i,j),2) * (pow(sourcesds(i,0),2) +
-          pow(corrsds(i,0),2));
-        sigmabtmsq1 += pow(p(i),2) * pow(concentrationmeans(i,j),2);
-      }
-    }
-    
-    //Calculate mu and sd
-    mu1 = mutop1/mubtm1;
-    sigmasq1 = sigmatopsq1/sigmabtmsq1;
-    double sigma1 = pow(sigmasq1 + 1/theta((n_sources)), 0.5);
-    
-    
-    // This is to get dnorm(y[,2], sum(p*q) etc)
-    double mutop2 = 0;
-    double mubtm2 = 0;
-    double mu2 = 0;
-    double sigmasq2 = 0;
-    double sigmatopsq2 = 0;
-    double sigmabtmsq2 = 0;
-    for(int i=0; i<n_sources; i++){
-      for(int j =0; j<n_isotopes; j++){
-        mutop2 += p(i) * concentrationmeans(i,j) * (sourcemeans(i,1) + correctionmeans(i,1));
-        mubtm2 += p(i) * concentrationmeans(i,j);
-      }
-    }
-    
-    
-    for(int i=0; i<n_sources; i++){
-      for(int j=0; j<n_isotopes; j++){
-        sigmatopsq2 += pow(p(i),2) * pow(concentrationmeans(i,j),2) * (pow(sourcesds(i,1),2) +
-          pow(corrsds(i,1),2));
-        sigmabtmsq2 += pow(p(i),2) * pow(concentrationmeans(i,j),2);
-      }
-    }
-    
-    mu2 = mutop2/mubtm2;
-    sigmasq2 = sigmatopsq2/sigmabtmsq2;
-    
-    double sigma2 = pow(sigmasq2 + 1/theta((1+n_sources)), 0.5);
-    
-    double yminusmu1 = 0;
-    double yminusmu2 = 0;
-    
-    for(int i = 0; i<ly; i++){
-      yminusmu1 += pow((y(i,0) - mu1),2);
-      yminusmu2 +=  pow((y(i,1) - mu2),2);
-    }
-    
-    
-    
-    // This is log(dnorm(y, p*q, p^2*q^2 etc) for y1 and y2
-    
-    x = - ly * log(sigma1) - 0.5 * ly * log(2 * M_PI)
-      - 0.5 * yminusmu1 * 1/(pow(sigma1,2))
-      - ly * log(sigma2) - 0.5 * ly * log(2 * M_PI)
-      - 0.5 * yminusmu2 * 1/(pow(sigma2,2));
-      
-      
-  }  else{
-    //This is for just one isotope!!
-    
-    // This is to get dnorm(y[,1], sum(p*q) etc)
-    double mutop = 0;
-    double mubtm = 0;
-    double mu = 0;
-    double sigmasq = 0;
-    double sigmatopsq = 0;
-    double sigmabtmsq = 0;
-    
-    // calculate mu numerator and denominator
-    for(int i=0; i<n_sources; i++){
-      mutop += p(i) * concentrationmeans(i,0) * (sourcemeans(i,0) + correctionmeans(i,0));
-      mubtm += p(i) * concentrationmeans(i,0);
-    }
-    
-    
-    
-    
-    // same for sigma
-    for(int i=0; i<n_sources; i++){
-      sigmatopsq += pow(p(i),2) * pow(concentrationmeans(i,0),2) * (pow(sourcesds(i,0),2) +
-        pow(corrsds(i,0),2));
-      sigmabtmsq += pow(p(i),2) * pow(concentrationmeans(i,0),2);
-    }
-    
-    
-    
-    //Calculate mu and sd
-    mu = mutop/mubtm;
-    sigmasq = sigmatopsq/sigmabtmsq;
-    double sigma = pow(sigmasq + 1/theta(n_sources), 0.5);
-    
-    
-    
-    
-    
-    double yminusmu = 0;
-    
-    for(int i = 0; i<ly; i++){
-      yminusmu += pow((y(i,0) - mu),2);
-    }
-    
-    
-    
-    
-    
-    // This has y
-    
-    x = - ly * log(sigma) - 0.5 * ly * log(2 * M_PI) - 0.5 * yminusmu* 1/(pow(sigma,2));
-    
-    
-    
-    
   }
   
-  double thetanorm = 0;
+  
+  NumericMatrix mutotal(n,n_isotopes);
+  // 
+  for(int i=0; i<(n); i++){
+    for(int j =0; j<n_isotopes; j++){
+      mutotal(i,j) = mutop(i,j)/mubtm(i,j);
+    }
+  }
+  
+  // Now do the same for sigma
+  // 
+  NumericMatrix sigsqtop(n, n_isotopes);
+  NumericMatrix sigsqbtm(n, n_isotopes);
+  
+  for(int j=0; j<n_isotopes; j++){
+    for(int i=0; i<n; i++){
+      for(int k=0; k<n_sources; k++){
+        sigsqtop(i,j) += pow(p(i,k) * concentrationmeans(k,j),2) * (pow(sourcesds(k,j),2) + pow(corrsds(k,j),2));
+        sigsqbtm(i,j) += pow(p(i,k)*concentrationmeans(k,j),2);
+      }
+    }
+  }
+  
+  
+  
+  NumericMatrix sigtotal(n,n_isotopes);
+  
+  // for(int i=0; i<(n); i++){
+  //   for(int j=0; j<n_isotopes; j++){
+  //     sigtotal(i,j) = pow((sigtop(i,j)/sigbtm(i,j)) + 1/theta(j + n_sources*n_covariates), 0.5);
+  //   }
+  // }
+  
+  for(int i=0; i<(n); i++){
+    for(int j=0; j<n_isotopes; j++){
+      
+      // this is the sqrt of p^2 + q^2 etc + 1/tau
+      sigtotal(i,j) = pow((sigsqtop(i,j)/sigsqbtm(i,j) + 1/theta(j + n_sources*n_covariates)), 0.5);
+    }
+  }
+  
+  
+  double hold = 0;
+  
+  // extract theta before below step
+  // Then rewrite formula - drop n
+  
+  
+  for(int i=0; i<n; i++){
+    for(int j=0; j<n_isotopes; j++){
+      hold += - log(sigtotal(i,j)) - 0.5  * log(2 * M_PI) -
+        0.5 * pow((y(i,j)-mutotal(i,j)),2) * 1/pow(sigtotal(i,j), 2);
+    }
+  }
   
   
   
   
-  for(int i = 0; i<n_sources; i++){
-    thetanorm +=  - n_sources * log(prior_sd(i)) - 0.5 * log(2 * M_PI) - (pow((theta(i) - prior_means(i)), 2)
-                                                                            * 1/(2 * pow(prior_sd(i), 2)));
+  double betanorm = 0;
+  
+  
+  for(int i = 0; i<n_covariates; i++){
+    for(int j=0; j<n_sources; j++){
+      betanorm +=  - n_sources * log(prior_sd(i,j)) - 0.5 * log(2 * M_PI) -
+        0.5 * (pow((beta(i,j) - prior_means(i,j)), 2) * (pow(prior_sd(i,j), -2)));
+    }
   }
   
   double gammaprior = 0;
-  for (int i=0; i <(n_isotopes); i++){
-    gammaprior += c_0(i) * log(d_0(i)) - log(tgamma(c_0(i))) +(c_0(i) - 1) * theta((i+n_sources)) -
-      d_0(i) * theta((i+n_sources));
+  
+  for (int i=0; i<(n_isotopes); i++){
+    gammaprior += c_0(i) * log(d_0(i)) - log(tgamma(c_0(i))) +
+      (c_0(i) - 1) * log(theta(i+n_sources*n_covariates))-
+      d_0(i) * theta(i+n_sources*n_covariates);
     
   }
+  // 
+  double totx = gammaprior + betanorm + hold;
   
-  double totx = x + gammaprior + thetanorm;
-  
-  return totx;
+  return (totx);
   
 }
 
-// EDIT EDIT
 
+// This is basically the same as sim_theta but its using updated lambdas
+// instead of set prior values
 //[[Rcpp::export]]
 double log_q_cpp(NumericVector theta, NumericVector lambda, 
-                 int n_sources, int n_tracers){
+                 int n_sources, int n_tracers, int S, int n_covariates){
   
-  NumericMatrix thetaminusmean(1, n_sources);
+  NumericMatrix mean_beta((n_covariates), n_sources);
+  int mat_size = n_sources * (n_sources+1) /2;
   
-  for(int i = 0; i <n_sources; i++){
-    thetaminusmean(0,i) = theta(i) - lambda(i);
+  for(int i=0; i<n_covariates; i++){
+    for(int k=0; k<n_sources;k++){
+      mean_beta(i,k) = lambda(i * mat_size + i * n_sources + k);
+    }
   }
   
-  NumericMatrix chol_prec(n_sources, n_sources);
-  int count = 0;
-  for(int j = 0; j< n_sources; j++){ 
-    for(int i = 0; i<n_sources; i++){
-      if (i <= j){
-        count +=1;
-        chol_prec((i),(j)) = lambda(n_sources -1 +count);
-        
-        
-      }
-      else{
-        chol_prec(i,j) = 0;
-      }
+  NumericVector count(n_covariates);
+  
+  for(int i =0; i<n_covariates; i++){
+    count(i) = 0;
+  }
+  NumericMatrix sig_beta(n_covariates, mat_size);
+  
+  for(int m = 0; m<mat_size; m++){
+    for(int i =0; i<n_covariates; i++){
+      sig_beta(i,m) = lambda(i* mat_size + (i+1) * n_sources + m);
       
     }
   }
-  NumericMatrix prec(n_sources, n_sources);
-  prec = crossprod(chol_prec);
   
-  NumericMatrix solve_prec(n_sources, n_sources);
-  solve_prec = solvearma(prec);
+  arma::cube chol_prec(n_sources, n_sources, n_covariates);
   
-  NumericMatrix y(1, n_sources);
-  NumericVector mean(n_sources);
+  for(int j = 0; j< n_sources; j++){
+    for(int i = 0; i<n_sources; i++){
+      for(int m = 0; m<n_covariates; m++){
+        if (i <= j){
+          count(m) +=1;
+          chol_prec(i,j,m) = sig_beta(m, count(m)-1);
+          
+          
+        }
+        
+        else{
+          chol_prec(i,j,m) = 0;
+        }
+      }
+    }
+  }
   
-  for(int i = 0; i<n_sources; i++){
-    y(0,i) = theta(i);
-    mean(i) = lambda(i);
+  Rcpp::NumericMatrix beta(n_covariates, n_sources);
+  
+  for(int i = 0; i<n_covariates; i++){
+    for(int j=0; j<n_sources; j++){
+      beta(i,j) = theta((i)*n_sources +j);
+    }
+  }
+  
+  // NumericVector sigma(n_tracers);
+  // 
+  // for(int i=0; i<n_tracers; i++){
+  //   sigma(i) = theta(n_covariates*n_sources+i);
+  // }
+  
+  // NumericMatrix pmat(n_covariates, n_sources);
+  // 
+  // NumericMatrix y(n_covariates, n_sources);
+  // 
+  // for(int i=0; i<n_covariates; i++){
+  //   for (int j=0; j<n_sources; j++){
+  //     y(i,j) = beta(i,j) - mean_beta(i,j);
+  //   }
+  // }
+  
+  NumericMatrix p_mat(n_covariates, n_sources);
+  
+  for(int k=0; k<n_covariates; k++){
+    NumericMatrix beta_minus_mean(1, n_sources);
+    
+    for(int i = 0; i<n_sources; i++){
+      beta_minus_mean(0,i) = beta(k,i) - mean_beta(k,i);
+    }
+    
+    NumericMatrix chol_prec_mat = (Rcpp::wrap(chol_prec.slice(k)));
+    NumericMatrix t_chol_prec(n_sources, n_sources);
+    for(int i=0; i<n_sources; i++){
+      for (int j=0; j < n_sources; j++){
+        t_chol_prec(j,i) = chol_prec_mat(i,j);
+      }}
+    
+    p_mat(k,_) = matmult(beta_minus_mean, t_chol_prec);
+  }
+  
+  NumericVector sumlogdiag(n_covariates);
+  
+  for(int i=0; i<n_sources; i++){
+    for(int j=0; j<n_sources; j++){
+      for(int k=0; k<n_covariates; k++){
+        NumericMatrix cov = (Rcpp::wrap(chol_prec.slice(k)));
+        if(i==j){
+          sumlogdiag(k) += log(cov(i,j));
+        }
+      }
+    }
+  }
+  
+  double sum_p = 0;
+  
+  //  Need to fix  mat mult - extrct each p before multiplying and then put into matmult i think
+  
+  NumericVector p_mat_mult(n_covariates);
+  
+  for(int k = 0; k<n_covariates; k++){
+    for(int i = 0; i<n_sources; i++){
+      p_mat_mult(k) += pow(p_mat(k,i),2);
+    }
   }
   
   
   
   
-  double thetanorm = 0;
   
-  thetanorm = 
-    *REAL(Rcpp::wrap(dmvnrm_arma_fast(as<arma::mat>(y), mean, as<arma::mat>(solve_prec))));
-    
-    
-    
-    
-    
-    double gamman = 0;
-    for (int i=0; i <(n_tracers); i++){
-      gamman += lambda(((n_sources + (n_sources * (n_sources + 1)) / 2) + i)) * 
-        log(lambda(((n_sources + (n_sources * (n_sources + 1)) / 2)) + n_tracers + i)) 
-      - log(tgamma(lambda(((n_sources + (n_sources * (n_sources + 1)) / 2) + i)))) 
-      +(lambda(((n_sources + (n_sources * (n_sources + 1)) / 2) + i)) - 1) * log(theta((i+n_sources))) - 
-      lambda(((n_sources + (n_sources * (n_sources + 1)) / 2)) + n_tracers + i) * theta((i+n_sources));
-    }
-    
-    
-    
-    
-    double x = thetanorm + gamman;
-    
-    return x;
-    
-    
-    
-    
+  
+  for(int k = 0; k<n_covariates; k++){
+    sum_p = sum_p -0.5 * n_sources *log(2 *M_PI) - 0.5 * sumlogdiag(k) - 0.5 * p_mat_mult(k);
+  }
+  
+  
+  
+  
+  
+  
+  
+  
+  // double thetanorm = 0;
+  // for(int i=0; i<n_covariates; i++){
+  //   NumericMatrix prec(n_sources, n_sources);
+  //   prec = crossprod(Rcpp::wrap(chol_prec.slice(i)));
+  //   NumericMatrix solve_prec(n_sources, n_sources);
+  //   solve_prec = solvearma(prec);
+  //   NumericMatrix currentbeta(1, n_sources);
+  //   currentbeta(0,_) = beta(i,_);
+  //   
+  //   thetanorm += *REAL(Rcpp::wrap(dmvnrm_arma_fast(as<arma::mat>(currentbeta), mean_beta(i,_), as<arma::mat>(solve_prec))));
+  // }
+  
+  
+  
+  
+  
+  
+  double gamman = 0;
+  for (int i=0; i <(n_tracers); i++){
+    gamman += lambda(n_covariates * mat_size + n_covariates *n_sources +i) * 
+      log(lambda(n_covariates * mat_size + n_covariates *n_sources +i + n_tracers))  -
+      log(tgamma(lambda(n_covariates * mat_size + n_covariates *n_sources +i)))  +
+      (lambda(n_covariates * mat_size + n_covariates *n_sources +i) - 1) * log(theta(i+n_sources*n_covariates)) - 
+      lambda(n_covariates * mat_size + n_covariates *n_sources +i + n_tracers) * theta((i+n_sources*n_covariates));
+  }
+  
+  
+  
+  
+  double x = sum_p+ gamman;
+  
+  return (x);
+  
 }
 
 // TRY ADDING AUTO-DIFFERRENTIATION HERE RATHER THAN FROM FIRST PRINCIPLES
+// This is just differentiating from first principles
 
 // [[Rcpp::export]]
 NumericVector delta_lqltcpp(NumericVector lambda, NumericVector theta, 
-                            double eps, int n_sources, int n_tracers) {
+                            double eps, int n_sources, 
+                            int n_tracers, int n_covariates,
+                            int S) {
   // eps = 0.001;
   double k = lambda.length();
   NumericVector ans(k);
@@ -528,26 +580,31 @@ NumericVector delta_lqltcpp(NumericVector lambda, NumericVector theta,
       lambdaplusd(j) = lambda(j) + d(j);
       lambdaminusd(j) = lambda(j) - d(j);
     }
-    ans(i) = (log_q_cpp(theta, lambdaplusd, n_sources, n_tracers) -  
-      log_q_cpp(theta, lambdaminusd, n_sources, n_tracers))/(2 * eps);
+    ans(i) = (log_q_cpp(theta, lambdaplusd, n_sources, n_tracers, S, n_covariates) -  
+      log_q_cpp(theta, lambdaminusd, n_sources, n_tracers, S, n_covariates))/(2 * eps);
   }
   return  ans;
 }
 
+// getting the difference of hcpp and log_q_cpp
 
 // [[Rcpp::export]]
 double h_lambdacpp(int n_sources, int n_isotopes,
                    double beta_prior,
+                   int n_covariates,
+                   int S,
                    NumericMatrix concentrationmeans, NumericMatrix sourcemeans,
                    NumericMatrix correctionmeans,
                    NumericMatrix corrsds, NumericMatrix sourcesds,
                    NumericVector theta, NumericMatrix y,
-                   NumericVector lambda) {
+                   NumericVector lambda,
+                   NumericMatrix x_scaled) {
   
-  return hcpp(n_sources, n_isotopes, beta_prior, concentrationmeans, sourcemeans, correctionmeans,
-              corrsds, sourcesds, theta, y) - log_q_cpp(theta, lambda, n_sources, n_isotopes);
+  return hcpp(n_sources, n_isotopes, n_covariates, beta_prior, x_scaled, concentrationmeans, sourcemeans, correctionmeans,
+              corrsds, sourcesds, theta, y) - log_q_cpp(theta, lambda, n_sources, n_isotopes, S, n_covariates);
 }
 
+//calculating covariance of 2 matrices
 
 // [[Rcpp::export]]
 NumericMatrix cov_mat_cpp(NumericMatrix x, NumericMatrix y) {
@@ -607,10 +664,13 @@ NumericMatrix cov_mat_cpp(NumericMatrix x, NumericMatrix y) {
 }
 
 
-
+//Nabla LB is the mean of delta_lqlt element-wise multiplied by h_lambda
 
 // [[Rcpp::export]]
-NumericVector nabla_LB_cpp(NumericVector lambda, NumericMatrix theta, int n_sources, int n_tracers, double beta_prior, 
+NumericVector nabla_LB_cpp(NumericVector lambda, NumericMatrix theta, 
+                           int n_sources, int n_tracers, double beta_prior,
+                           int S, int n_covariates,
+                           NumericMatrix x_scaled,
                            NumericMatrix concentrationmeans, NumericMatrix sourcemeans,
                            NumericMatrix correctionmeans,
                            NumericMatrix corrsds, NumericMatrix sourcesds, NumericMatrix y,
@@ -631,15 +691,17 @@ NumericVector nabla_LB_cpp(NumericVector lambda, NumericMatrix theta, int n_sour
   
   
   for(int i = 0; i <thetanrow; i++){
-    big_delta_lqlt(i,_) = delta_lqltcpp(lambda, theta(i,_), 0.01, n_sources, n_tracers);
+    big_delta_lqlt(i,_) = delta_lqltcpp(lambda, theta(i,_), 0.001, n_sources, n_tracers,
+                   n_covariates, S);
   }
   
   for(int i =0; i<thetanrow; i++){
     big_h_lambda(i) = h_lambdacpp(n_sources, n_tracers, beta_prior,
+                 n_covariates, S,
                  concentrationmeans, sourcemeans,
                  correctionmeans,
                  corrsds,sourcesds, theta(i,_), y,
-                 lambda);
+                 lambda, x_scaled);
   }
   
   
@@ -697,12 +759,15 @@ NumericVector nabla_LB_cpp(NumericVector lambda, NumericMatrix theta, int n_sour
 }
 
 
+// calculate control variate (big formula)
 
 // [[Rcpp::export]]
 NumericVector control_var_cpp(NumericVector lambda, 
                               NumericMatrix theta, 
                               int n_sources, int n_tracers,
                               double beta_prior,
+                              int n_covariates,
+                              NumericMatrix x_scaled,
                               NumericMatrix concentrationmeans, 
                               NumericMatrix sourcemeans,
                               NumericMatrix correctionmeans,
@@ -719,15 +784,17 @@ NumericVector control_var_cpp(NumericVector lambda,
   NumericVector big_h_lambda_transpose(S);
   
   for(int i = 0; i <S; i++){
-    big_delta_lqlt(i,_) = delta_lqltcpp(lambda, theta(i,_), 0.01, n_sources, n_tracers);
+    big_delta_lqlt(i,_) = delta_lqltcpp(lambda, theta(i,_), 0.001, n_sources, n_tracers,
+                   n_covariates, S);
   }
   
   for(int i =0; i<S; i++){
     big_h_lambda(i) = h_lambdacpp(n_sources, n_tracers, beta_prior,
+                 n_covariates, S,
                  concentrationmeans, sourcemeans,
                  correctionmeans,
                  corrsds,sourcesds, theta(i,_), y,
-                 lambda);
+                 lambda, x_scaled);
   }
   
   
@@ -779,9 +846,14 @@ NumericVector control_var_cpp(NumericVector lambda,
   return ans;
 }
 
+// estimate of LB 
+
 // [[Rcpp::export]]
-double LB_lambda_cpp(NumericMatrix theta, NumericVector lambda, NumericVector p, int n_sources, int n_isotopes, 
+double LB_lambda_cpp(NumericMatrix theta, NumericVector lambda, 
+                     NumericVector p, int n_sources, int n_isotopes, 
                      double beta_prior,
+                     int n_covariates,
+                     NumericMatrix x_scaled,
                      NumericMatrix concentrationmeans, NumericMatrix sourcemeans,
                      NumericMatrix correctionmeans,
                      NumericMatrix corrsds, NumericMatrix sourcesds, NumericMatrix y){
@@ -790,8 +862,12 @@ double LB_lambda_cpp(NumericMatrix theta, NumericVector lambda, NumericVector p,
   NumericVector hlambdaapply(S);
   
   for(int i = 0; i <S; i++){
-    hlambdaapply(i) = h_lambdacpp(n_sources, n_isotopes, beta_prior, concentrationmeans, sourcemeans,
-                 correctionmeans, corrsds, sourcesds, theta(i,_), y, lambda);
+    hlambdaapply(i) = h_lambdacpp(n_sources, n_isotopes, beta_prior, 
+                 n_covariates, S,
+                 concentrationmeans, sourcemeans,
+                 correctionmeans, corrsds, sourcesds, 
+                 theta(i,_), y, lambda,
+                 x_scaled);
   }
   
   double ans = mean(hlambdaapply);
@@ -802,11 +878,14 @@ double LB_lambda_cpp(NumericMatrix theta, NumericVector lambda, NumericVector p,
 }
 
 
+// Actually putting it all together and running it
 
 // [[Rcpp::export]]
 NumericVector run_VB_cpp(NumericVector lambdastart,
                          int n_sources,
                          int n_tracers,
+                         int n_covariates,
+                         int n,
                          double beta_prior,
                          NumericMatrix concentrationmeans,
                          NumericMatrix sourcemeans,
@@ -814,6 +893,7 @@ NumericVector run_VB_cpp(NumericVector lambdastart,
                          NumericMatrix corrsds,
                          NumericMatrix sourcesds,
                          NumericMatrix y,
+                         NumericMatrix x_scaled,
                          int S,
                          int P,
                          double beta_1,
@@ -829,11 +909,12 @@ NumericVector run_VB_cpp(NumericVector lambdastart,
   
   NumericMatrix theta(S, (n_sources + n_tracers));
   
-  theta = sim_thetacpp(S, lambdastart, n_sources, n_tracers);
-  
+  theta = sim_thetacpp(S, lambdastart, n_sources, n_tracers, n_covariates);
+  // print(theta);
   NumericVector c(lsl);
   
   c = control_var_cpp(lambdastart, theta, n_sources, n_tracers, beta_prior, 
+                      n_covariates, x_scaled,
                       concentrationmeans,
                       sourcemeans, correctionmeans,
                       corrsds, sourcesds, y);
@@ -848,6 +929,7 @@ NumericVector run_VB_cpp(NumericVector lambdastart,
   g_0 = nabla_LB_cpp(lambdastart, theta, 
                      n_sources, n_tracers, 
                      beta_prior,
+                     S, n_covariates, x_scaled,
                      concentrationmeans, sourcemeans,
                      correctionmeans, corrsds, 
                      sourcesds, y, c_0);
@@ -887,20 +969,27 @@ NumericVector run_VB_cpp(NumericVector lambdastart,
   
   while(stop == FALSE){
     
-    theta = sim_thetacpp(S, lambda, n_sources, n_tracers);
+    theta = sim_thetacpp(S, lambda, n_sources, n_tracers, n_covariates);
+    // Rcout << "The value of theta : " << theta << "\n";
     
-    g_t = nabla_LB_cpp(lambda, theta, n_sources, n_tracers, beta_prior, concentrationmeans,
+    g_t = nabla_LB_cpp(lambda, theta, n_sources, n_tracers, beta_prior,
+                       S, n_covariates, x_scaled, concentrationmeans,
                        sourcemeans, correctionmeans, corrsds, sourcesds,
                        y, c);
     
+    Rcout << "The value of gt : " << g_t << "\n";
+    
     c = control_var_cpp(lambda, theta,n_sources,n_tracers, beta_prior,
+                        n_covariates, x_scaled,
                         concentrationmeans, sourcemeans,
                         correctionmeans,
                         corrsds,sourcesds, y);
+    Rcout << "The value of c : " << c << "\n";
     
     for(int i=0; i<lsl; i++){
       nu_t(i) = pow(g_t(i),2);
     }
+    Rcout << "The value of nu_t : " << nu_t << "\n";
     
     for(int i=0; i<lsl; i++){
       g_bar(i) = (beta_1 * g_bar(i)) + ((1-beta_1) * g_t(i));
@@ -915,6 +1004,7 @@ NumericVector run_VB_cpp(NumericVector lambdastart,
     }
     
     alpha_t = Rcpp::min(alpha_min);
+    Rcout << "The value of alpha_t : " << alpha_t << "\n";
     
     
     
@@ -922,17 +1012,26 @@ NumericVector run_VB_cpp(NumericVector lambdastart,
     for(int i = 0; i<lsl; i++){
       //lambda(i) = lambda(i) + alpha_t * 1/pow(nu_bar(i), 0.5);
       lambda(i) = lambda(i) + alpha_t * (g_bar(i)/(pow(nu_bar(i), 0.5)));
+      
+      //Adding if statement to stop lambda dropping below 0 - not sure if this
+      // is 1. allowed 2. will mess up results 3. will result in it just converging
+      // on 0.001. Had it smaller but it broke it. Actually it just seems to break it
+      //full stop. Or - it means the issue isn't with lambda going below zero?
+      //if(lambda(lsl-1) < 0){lambda(lsl-1) = 0.001;}
     }
+    Rcout << "Iteration : " << t << "\n";
+    Rcout << "The value of lambda : " << lambda << "\n";
     
     
     //# Compute the moving average LB if out of warm-up
     if(t<=t_W){
       
       // # Compute a new lower bound estimate
-      NumericVector p = hfn(theta, n_sources);
+      NumericVector p = hfn(theta, n_sources, n,  n_covariates, x_scaled);
       
       LB(t) = LB_lambda_cpp(theta,lambda, p, n_sources, n_tracers,
          beta_prior,
+         n_covariates, x_scaled,
          concentrationmeans, sourcemeans,
          correctionmeans,
          corrsds,sourcesds, y);
@@ -942,13 +1041,16 @@ NumericVector run_VB_cpp(NumericVector lambdastart,
         LB(i) = LB(i+1);
       }
       
-      NumericVector p = hfn(theta, n_sources);
+      NumericVector p = hfn(theta, n_sources, n, n_covariates, x_scaled);
       
       LB(t_W) = LB_lambda_cpp(theta, lambda, p, n_sources, n_tracers,
          beta_prior,
+         n_covariates, x_scaled,
          concentrationmeans, sourcemeans,
          correctionmeans,
          corrsds,sourcesds, y);
+      
+      Rcout << "The value of LB : " << LB << "\n";
       
       
       double LB_bar = mean(LB);
@@ -962,6 +1064,8 @@ NumericVector run_VB_cpp(NumericVector lambdastart,
       
       max_LB_bar = Rcpp::max(maxbar);
       
+      Rcout << "The value of max_LB_bar : " << max_LB_bar << "\n";
+      
       if(LB_bar>= max_LB_bar){
         patience = 0;
       } else{
@@ -969,6 +1073,7 @@ NumericVector run_VB_cpp(NumericVector lambdastart,
       }
       
     }
+    Rcout << "The value of P : " << patience << "\n";
     
     //////////////////////
     if(patience>P){
@@ -977,6 +1082,7 @@ NumericVector run_VB_cpp(NumericVector lambdastart,
     t = t + 1;
   }
   
+  
   return lambda;
-
+  
 }
